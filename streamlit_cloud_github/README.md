@@ -75,7 +75,7 @@ Your public URL will be: `https://<app-name>-<user>.streamlit.app`
 ### 3. Recommended settings for visitors
 
 - Default data source in the app is **Local sample file** (fast, no API quota)
-- Use **SERENE API** only with a **small region** (sidebar shows estimated API calls, max 30)
+- Use **SERENE API** only with a **small region** (sidebar shows estimated API calls, max 50)
 
 ---
 

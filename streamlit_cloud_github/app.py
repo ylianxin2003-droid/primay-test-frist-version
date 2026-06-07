@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from alert_engine import DISCLAIMER, generate_alerts, generate_overall_risk
+from app_utils import combine_date_time_iso
 from config import SERENE_API_TOKEN, reload_config, validate_config
 from data_loader import LoadStatus, load_data, resolve_local_file
 from serene_client import MAX_GRID_POINTS, SereneClient
@@ -98,15 +99,43 @@ def _render_sidebar() -> dict:
 
     params["model"] = st.sidebar.selectbox("Model", ["AIDA", "TOMIRIS"])
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    default_start = now - timedelta(hours=6)
     st.sidebar.markdown("#### Time range")
-    params["start_time"] = st.sidebar.text_input(
-        "Start datetime (ISO 8601)",
-        value=(now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S"),
-    )
-    params["end_time"] = st.sidebar.text_input(
-        "End datetime (ISO 8601)",
-        value=now.strftime("%Y-%m-%dT%H:%M:%S"),
+    start_date_col, start_time_col = st.sidebar.columns(2)
+    with start_date_col:
+        start_date = st.date_input(
+            "Start date",
+            value=default_start.date(),
+            key="start_date",
+        )
+    with start_time_col:
+        start_clock = st.time_input(
+            "Start time",
+            value=default_start.time(),
+            step=timedelta(minutes=1),
+            key="start_time_clock",
+        )
+
+    end_date_col, end_time_col = st.sidebar.columns(2)
+    with end_date_col:
+        end_date = st.date_input(
+            "End date",
+            value=now.date(),
+            key="end_date",
+        )
+    with end_time_col:
+        end_clock = st.time_input(
+            "End time",
+            value=now.time(),
+            step=timedelta(minutes=1),
+            key="end_time_clock",
+        )
+
+    params["start_time"] = combine_date_time_iso(start_date, start_clock)
+    params["end_time"] = combine_date_time_iso(end_date, end_clock)
+    st.sidebar.caption(
+        f"ISO range: {params['start_time']} to {params['end_time']}"
     )
 
     avail_vars = ["TEC", "MUF3000", "foF2", "MUF3000_depression", "foF2_depression"]
@@ -207,6 +236,60 @@ def _source_label(status: LoadStatus) -> str:
     return mapping.get(status.source, status.source)
 
 
+def _historical_risk_windows() -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "Time UTC": "2024-05-11 00:00",
+            "Kp": "9.0",
+            "ap": "400",
+            "Risk": "G5 Extreme",
+            "Select range": "2024-05-10T18:00:00 to 2024-05-11T06:00:00",
+        },
+        {
+            "Time UTC": "2024-05-11 09:00",
+            "Kp": "9.0",
+            "ap": "400",
+            "Risk": "G5 Extreme",
+            "Select range": "2024-05-11T03:00:00 to 2024-05-11T15:00:00",
+        },
+        {
+            "Time UTC": "2024-05-10 18:00/21:00",
+            "Kp": "8.7",
+            "ap": "300",
+            "Risk": "G4 Severe",
+            "Select range": "2024-05-10T12:00:00 to 2024-05-11T00:00:00",
+        },
+        {
+            "Time UTC": "2024-05-11 03:00/06:00/12:00/15:00",
+            "Kp": "8.3-8.7",
+            "ap": "236-300",
+            "Risk": "G4 Severe",
+            "Select range": "2024-05-11T00:00:00 to 2024-05-11T18:00:00",
+        },
+        {
+            "Time UTC": "2024-10-10 18:00/21:00",
+            "Kp": "8.3-8.7",
+            "ap": "236-300",
+            "Risk": "G4 Severe",
+            "Select range": "2024-10-10T12:00:00 to 2024-10-11T00:00:00",
+        },
+        {
+            "Time UTC": "2025-11-12 00:00/03:00",
+            "Kp": "8.7",
+            "ap": "300",
+            "Risk": "G4 Severe",
+            "Select range": "2025-11-11T18:00:00 to 2025-11-12T06:00:00",
+        },
+        {
+            "Time UTC": "2026-01-19 18:00/21:00",
+            "Kp": "8.3-8.7",
+            "ap": "236-300",
+            "Risk": "G4 Severe",
+            "Select range": "2026-01-19T12:00:00 to 2026-01-20T00:00:00",
+        },
+    ])
+
+
 def _render_connection_panel() -> None:
     st.subheader("SERENE API & data status")
 
@@ -246,6 +329,14 @@ def _render_main(params: dict) -> None:
 
     _render_cloud_api_hint()
     _render_connection_panel()
+
+    st.subheader("Historical risk windows")
+    st.dataframe(
+        _historical_risk_windows(),
+        use_container_width=True,
+        hide_index=True,
+        height=260,
+    )
     st.markdown("---")
 
     if st.session_state.data.empty:

@@ -35,7 +35,7 @@ from config import (
 )
 
 # Max /api/calc/ calls per load (each point is one HTTP request).
-MAX_GRID_POINTS = int(os.getenv("SERENE_MAX_GRID_POINTS", "30"))
+MAX_GRID_POINTS = int(os.getenv("SERENE_MAX_GRID_POINTS", "50"))
 
 logger = logging.getLogger(__name__)
 
