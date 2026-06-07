@@ -155,6 +155,46 @@ def generate_historical_risk_alerts(start_time: str | None, end_time: str | None
     return pd.DataFrame(alerts)
 
 
+def build_data_preview(df: pd.DataFrame, alerts: pd.DataFrame) -> pd.DataFrame:
+    """Return backend-style data rows enriched with matching alert fields."""
+    preview = df.copy()
+    for col in ("alert_type", "risk_level", "alert_reason", "possible_aviation_impact"):
+        if col not in preview.columns:
+            preview[col] = ""
+    if preview.empty or alerts.empty:
+        return preview
+
+    for idx, row in preview.iterrows():
+        match = _match_alert(row, alerts)
+        if match is None:
+            continue
+        preview.at[idx, "alert_type"] = match.get("alert_type", "")
+        preview.at[idx, "risk_level"] = match.get("risk_level", "")
+        preview.at[idx, "alert_reason"] = match.get("reason", "")
+        preview.at[idx, "possible_aviation_impact"] = match.get("possible_aviation_impact", "")
+    return preview
+
+
+def _match_alert(row: pd.Series, alerts: pd.DataFrame) -> pd.Series | None:
+    candidates = alerts.copy()
+    if "variable" in row and "reason" in candidates.columns:
+        variable = str(row.get("variable", ""))
+        candidates = candidates[candidates["reason"].astype(str).str.startswith(f"{variable} =")]
+    if "value" in row and "value" in candidates.columns:
+        row_value = pd.to_numeric(pd.Series([row.get("value")]), errors="coerce").iloc[0]
+        alert_values = pd.to_numeric(candidates["value"], errors="coerce")
+        if not pd.isna(row_value):
+            candidates = candidates[(alert_values - row_value).abs() < 1e-9]
+    if "time" in row and "timestamp" in candidates.columns:
+        row_time = _parse_datetime(row.get("time"))
+        if row_time is not None:
+            alert_times = pd.to_datetime(candidates["timestamp"], errors="coerce")
+            candidates = candidates[alert_times == row_time]
+    if candidates.empty:
+        return None
+    return candidates.iloc[0]
+
+
 def _parse_range(value: str) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     start_text, sep, end_text = value.partition(" to ")
     if not sep:

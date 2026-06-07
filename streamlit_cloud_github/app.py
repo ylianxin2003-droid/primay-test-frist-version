@@ -16,6 +16,7 @@ import streamlit as st
 
 from alert_engine import DISCLAIMER, generate_alerts, generate_overall_risk
 from app_utils import (
+    build_data_preview,
     combine_date_time_iso,
     generate_historical_risk_alerts,
     historical_risk_windows,
@@ -375,7 +376,7 @@ def _render_main(params: dict) -> None:
 
     # ── Visualisations ──────────────────────────────────────────────────────
     st.subheader("Data preview")
-    st.dataframe(df.head(100), use_container_width=True)
+    st.dataframe(build_data_preview(df, alerts).head(100), use_container_width=True)
 
     var_options = sorted(df["variable"].dropna().unique()) if "variable" in df.columns else []
     selected_var = st.selectbox("Variable for plots", var_options or [None])
