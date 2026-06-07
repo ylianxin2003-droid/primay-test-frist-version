@@ -23,9 +23,6 @@ streamlit_cloud_github/          ← use this folder as the Git repo root
 ├── .streamlit/
 │   ├── config.toml
 │   └── secrets.toml.example     ← template only (do not commit real secrets)
-├── data/
-│   ├── latest_aida_grid.json
-│   └── test_aida_grid.json
 ├── README.md
 └── 部署说明.md
 ```
@@ -74,11 +71,9 @@ Your public URL will be: `https://<app-name>-<user>.streamlit.app`
 
 ### 3. Recommended settings for visitors
 
-- Default data source in the app is **Local sample file** (fast, no API quota)
-- Use **SERENE API** only with a **small region** (sidebar shows estimated API calls, max 50)
-- In **SERENE API** mode, the dashboard also downloads SERENE `Kp_ap.csv`
-  indices and uses Kp/ap together with AIDA variables (`vTEC`/`TEC`,
-  `MUF3000`, `foF2`) to generate prototype risk advisories.
+- The app loads data online through SERENE API/resource calls only; it does not store or read local sample datasets.
+- Use a **small region** because the sidebar caps estimated `/api/calc/` calls at 50.
+- The dashboard also downloads SERENE `Kp_ap.csv` indices and uses Kp/ap together with AIDA variables (`vTEC`/`TEC`, `MUF3000`, `foF2`) to generate prototype risk advisories.
 
 ---
 
@@ -90,6 +85,8 @@ cp .env.example .env
 # Edit .env with your SERENE token
 python -m streamlit run app.py
 ```
+
+Without a valid `SERENE_API_TOKEN`, authenticated `/api/calc/` AIDA data may be unavailable. Public SERENE Kp/ap resource calls can still load when the selected time range exists in the online resource.
 
 Official SERENE API:
 

@@ -123,7 +123,7 @@ def validate_config() -> list[str]:
     if not SERENE_API_TOKEN:
         messages.append(
             "SERENE_API_TOKEN is not set. "
-            "Without it, SERENE API mode falls back to the local sample file."
+            "Without it, authenticated SERENE API endpoints may be unavailable."
         )
 
     return messages

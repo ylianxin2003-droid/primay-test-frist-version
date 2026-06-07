@@ -23,7 +23,7 @@ from app_utils import (
     parse_select_range_to_widgets,
 )
 from config import SERENE_API_TOKEN, reload_config, validate_config
-from data_loader import LoadStatus, load_data, resolve_local_file
+from data_loader import LoadStatus, load_data
 from serene_client import MAX_GRID_POINTS, SereneClient
 from visualisation import (
     create_alert_summary,
@@ -57,23 +57,13 @@ if "api_message" not in st.session_state:
 if "config_warnings" not in st.session_state:
     st.session_state.config_warnings = validate_config()
 
-# Auto-load bundled sample data on first visit (works without SERENE API).
-if "bootstrap_done" not in st.session_state:
-    _boot_df, _boot_status = load_data(source="local")
-    if not _boot_df.empty:
-        st.session_state.data = _boot_df
-        st.session_state.status = _boot_status
-        st.session_state.alerts = generate_alerts(_boot_df)
-    st.session_state.bootstrap_done = True
-
-
 def _render_cloud_api_hint() -> None:
     """Explain why SERENE API may be unavailable on Streamlit Cloud."""
     if SERENE_API_TOKEN:
         return
     st.info(
-        "**SERENE API 未配置。** 当前展示的是仓库内的样例数据（可正常演示）。\n\n"
-        "若要在云端使用实时 API：Streamlit Cloud → 你的应用 → **Settings → Secrets**，粘贴：\n\n"
+        "**SERENE API 未配置。** 当前应用只使用在线 SERENE API 数据，不再读取本地样例数据。\n\n"
+        "若要在云端使用 API：Streamlit Cloud → 你的应用 → **Settings → Secrets**，粘贴：\n\n"
         "```toml\n"
         "SERENE_API_BASE_URL = \"https://spaceweather.bham.ac.uk\"\n"
         "SERENE_API_TOKEN = \"你的token\"\n"
@@ -96,12 +86,8 @@ def _render_sidebar() -> dict:
             for msg in st.session_state.config_warnings:
                 st.warning(msg)
 
-    params["source"] = st.sidebar.selectbox(
-        "Data source",
-        ["local", "api"],
-        format_func=lambda s: "SERENE API" if s == "api" else "Local sample file",
-        help="Local file loads instantly. SERENE API calls /api/calc/ per grid point.",
-    )
+    params["source"] = "api"
+    st.sidebar.info("Data source: SERENE API")
 
     params["model"] = st.sidebar.selectbox("Model", ["AIDA", "TOMIRIS"])
 
@@ -174,11 +160,6 @@ def _render_sidebar() -> dict:
         "lon_max": lon_max,
     }
 
-    params["local_file"] = st.sidebar.text_input(
-        "Local fallback file path",
-        value=str(resolve_local_file()),
-    )
-
     st.sidebar.markdown("---")
     if st.sidebar.button("Test SERENE API connection", use_container_width=True):
         with st.spinner("Testing connection..."):
@@ -220,7 +201,6 @@ def _do_load(params: dict) -> None:
             end_time=params.get("end_time"),
             variables=params.get("variables"),
             region=params.get("region"),
-            local_file=params.get("local_file"),
             grid_step=params.get("grid_step", 5.0),
             progress_callback=_on_api_progress if params["source"] == "api" else None,
         )
@@ -249,8 +229,6 @@ def _do_load(params: dict) -> None:
 def _source_label(status: LoadStatus) -> str:
     mapping = {
         "api": "SERENE API",
-        "local": "Local sample file",
-        "local_fallback": "Local sample file (API fallback)",
         "none": "No data",
     }
     return mapping.get(status.source, status.source)
@@ -298,9 +276,7 @@ def _render_connection_panel() -> None:
         st.metric("Rows loaded", f"{len(st.session_state.data):,}")
 
     if status.message:
-        if status.source == "local_fallback":
-            st.warning(status.message)
-        elif status.ok:
+        if status.ok:
             st.info(status.message)
         else:
             st.error(status.message)
@@ -337,9 +313,8 @@ def _render_main(params: dict) -> None:
 
     if st.session_state.data.empty:
         st.info(
-            "Select a data source in the sidebar and click **Load / Refresh data** "
-            "to begin. If SERENE API fails, the dashboard automatically uses the "
-            "local fallback file without crashing."
+            "Click **Load / Refresh data** in the sidebar to fetch live SERENE API data. "
+            "No local sample data is loaded or stored by the app."
         )
         with st.expander("Quick start"):
             st.markdown(
@@ -347,7 +322,7 @@ def _render_main(params: dict) -> None:
                 1. Copy `.env.example` to `.env` and set `SERENE_API_BASE_URL` and
                    `SERENE_API_TOKEN` (auth uses official `Token` scheme by default).
                 2. Click **Test SERENE API connection**, then **Load / Refresh data**.
-                4. Advisories shown here are **prototype advisories**, not official ICAO warnings.
+                3. Advisories shown here are **prototype advisories**, not official ICAO warnings.
                 """
             )
         return

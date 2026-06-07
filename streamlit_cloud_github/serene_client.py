@@ -500,7 +500,7 @@ class SereneClient:
             logger.warning("parse_response_to_dataframe received None.")
             return pd.DataFrame()
 
-        # Batch wrapper from grid fallback
+        # Batch wrapper for gridded point sampling.
         if isinstance(response_data, list) and response_data and isinstance(response_data[0], dict):
             if "response" in response_data[0]:
                 frames = []
