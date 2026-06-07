@@ -100,6 +100,7 @@ def load_data(
             "lon_min": -180.0,
             "lon_max": 180.0,
         }
+        api_frames: list[pd.DataFrame] = []
 
         ok, msg, raw = client.fetch_model_output(
             model=model,
@@ -116,18 +117,38 @@ def load_data(
         elif raw is not None:
             df = client.parse_response_to_dataframe(raw, model=model)
             if variables and not df.empty and "variable" in df.columns:
-                df = df[df["variable"].isin(variables)]
+                df = _filter_selected_variables(df, variables)
 
             if not df.empty:
-                status.source = "api"
-                status.ok = True
-                status.message = f"API connected — {len(df)} rows loaded from SERENE."
-                status.metadata = {"model": model, "api_message": msg}
-                return df, status
+                api_frames.append(df)
 
-            api_warnings.append(msg or "API returned empty or unparseable data.")
+            else:
+                api_warnings.append(msg or "API returned empty or unparseable data.")
         else:
             api_warnings.append(msg or "API returned no data.")
+
+        ok_indices, msg_indices, indices_df = client.fetch_kp_ap_indices(
+            start_time=start_time,
+            end_time=end_time,
+        )
+        if ok_indices and not indices_df.empty:
+            api_frames.append(indices_df)
+        else:
+            api_warnings.append(msg_indices)
+
+        if api_frames:
+            df_api = pd.concat(api_frames, ignore_index=True)
+            status.source = "api"
+            status.ok = True
+            status.message = f"API connected — {len(df_api)} rows loaded from SERENE."
+            status.metadata = {
+                "model": model,
+                "api_message": msg,
+                "indices_message": msg_indices,
+            }
+            if api_warnings:
+                status.warnings.extend(api_warnings)
+            return df_api, status
 
         status.warnings.extend(api_warnings)
 
@@ -156,7 +177,7 @@ def load_data(
 
     df = _parse_aida_grid_json(product, model=model)
     if variables and not df.empty and "variable" in df.columns:
-        df = df[df["variable"].isin(variables)]
+        df = _filter_selected_variables(df, variables)
 
     meta = product.get("metadata", {})
     status.metadata = meta
@@ -218,3 +239,12 @@ def _parse_aida_grid_json(product: dict[str, Any], model: str = "AIDA") -> pd.Da
                 })
 
     return pd.DataFrame(rows)
+
+
+def _filter_selected_variables(df: pd.DataFrame, variables: list[str]) -> pd.DataFrame:
+    selected = set(variables)
+    if "vTEC" in selected:
+        selected.add("TEC")
+    if "TEC" in selected:
+        selected.add("vTEC")
+    return df[df["variable"].isin(selected)]

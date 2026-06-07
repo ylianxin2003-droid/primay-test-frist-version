@@ -47,6 +47,20 @@ THRESHOLDS: dict[str, dict[str, list[float]]] = {
         "risk_label": "General ionospheric disturbance",
         "unit": "index",
     },
+    # NOAA G-scale style geomagnetic storm proxy from planetary Kp.
+    # Normal < 5, Watch G1/G2 5-7, Warning G3 7-8, Severe G4/G5 >= 8
+    "Kp": {
+        "levels": [5, 7, 8],
+        "risk_label": "Geomagnetic storm risk",
+        "unit": "Kp",
+    },
+    # ap roughly maps to Kp storm levels: ap 48 ~= Kp 5, 132 ~= Kp 7,
+    # 207 ~= Kp 8. This is used as supporting geomagnetic evidence.
+    "ap": {
+        "levels": [48, 132, 207],
+        "risk_label": "Geomagnetic storm risk",
+        "unit": "ap",
+    },
 }
 
 RISK_LEVELS = ["Normal", "Watch", "Warning", "Severe"]
@@ -113,6 +127,24 @@ IMPACT_TEMPLATES: dict[str, dict[str, tuple[str, str]]] = {
             "Extreme ionospheric storm conditions.",
             "All ionosphere-dependent aviation systems may be severely impacted. "
             "Consider operational restrictions per airline space weather procedures.",
+        ),
+    },
+    "Geomagnetic storm risk": {
+        "Normal": (
+            "No significant geomagnetic storm conditions detected.",
+            "Kp/ap values are below storm thresholds for this selected period.",
+        ),
+        "Watch": (
+            "Minor to moderate geomagnetic storm conditions possible.",
+            "Monitor GNSS and HF performance, especially on polar and high-latitude routes.",
+        ),
+        "Warning": (
+            "Strong geomagnetic storm conditions likely.",
+            "GNSS accuracy, scintillation risk, and HF propagation may be degraded.",
+        ),
+        "Severe": (
+            "Severe to extreme geomagnetic storm conditions indicated.",
+            "Expect elevated risk to GNSS and HF communication services; use operational backups.",
         ),
     },
 }
@@ -276,6 +308,10 @@ def _find_threshold(variable_name: str) -> dict[str, Any] | None:
         return THRESHOLDS.get("foF2_depression")
     if "disturb" in name_lower:
         return THRESHOLDS.get("ionospheric_disturbance")
+    if name_lower == "kp":
+        return THRESHOLDS.get("Kp")
+    if name_lower == "ap":
+        return THRESHOLDS.get("ap")
 
     return None
 
@@ -331,7 +367,7 @@ def _describe_threshold(
 
 def _region_label(lat: Any, lon: Any) -> str:
     """Create a human-readable region label from lat/lon."""
-    if lat is None or lon is None:
+    if lat is None or lon is None or pd.isna(lat) or pd.isna(lon):
         return "Global"
     try:
         lat_f = float(lat)

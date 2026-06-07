@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+from io import StringIO
 from typing import Any
 
 import numpy as np
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 # ★ Add future endpoints here when SERENE publishes expanded API docs.
 ENDPOINTS: dict[str, str] = {
     "calc": "/api/calc/",
+    "kp_ap": "/resources/download/Indices__Kp_ap.csv/",
     # Placeholders (not yet documented for Birmingham deployment):
     "health": "/api/health/",
     "models": "/api/models/",
@@ -313,6 +315,70 @@ class SereneClient:
 
         return False, msg_grid or "No data returned from SERENE API.", None
 
+    def fetch_kp_ap_indices(
+        self,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> tuple[bool, str, pd.DataFrame]:
+        """Fetch SERENE Kp/ap resource data and return dashboard rows."""
+        ok, msg, data = self._request_from_base(
+            "GET",
+            "https://serene.bham.ac.uk",
+            ENDPOINTS["kp_ap"],
+        )
+        if not ok or not isinstance(data, str):
+            return False, msg, pd.DataFrame()
+
+        df = self.parse_kp_ap_csv(data, start_time=start_time, end_time=end_time)
+        if df.empty:
+            return False, "SERENE Kp/ap resource returned no rows for the selected range.", df
+
+        return True, f"Loaded {len(df)} Kp/ap row(s) from SERENE resources.", df
+
+    @staticmethod
+    def parse_kp_ap_csv(
+        csv_text: str,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> pd.DataFrame:
+        """Parse SERENE ``Kp_ap.csv`` into the dashboard long-form schema."""
+        raw = pd.read_csv(StringIO(csv_text))
+        if raw.empty or "time" not in raw.columns:
+            return pd.DataFrame()
+
+        raw["time"] = pd.to_datetime(raw["time"], errors="coerce", utc=True)
+        raw = raw.dropna(subset=["time"])
+
+        start = _parse_optional_utc(start_time)
+        end = _parse_optional_utc(end_time)
+        if start is not None and end is not None and start > end:
+            start, end = end, start
+        if start is not None:
+            raw = raw[raw["time"] >= start]
+        if end is not None:
+            raw = raw[raw["time"] <= end]
+
+        rows: list[dict[str, Any]] = []
+        for _, row in raw.iterrows():
+            for variable in ("Kp", "ap"):
+                if variable not in raw.columns:
+                    continue
+                value = pd.to_numeric(pd.Series([row[variable]]), errors="coerce").iloc[0]
+                if pd.isna(value):
+                    continue
+                rows.append({
+                    "time": row["time"],
+                    "lat": None,
+                    "lon": None,
+                    "alt": None,
+                    "variable": variable,
+                    "value": float(value),
+                    "model": "SERENE Indices",
+                    "source": "SERENE Kp_ap.csv",
+                })
+
+        return pd.DataFrame(rows)
+
     @staticmethod
     def estimate_grid_points(
         lat_min: float,
@@ -390,6 +456,38 @@ class SereneClient:
             results,
         )
 
+    def _request_from_base(
+        self,
+        method: str,
+        base_url: str,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bool, str, Any]:
+        """Execute a request against a non-/api/calc SERENE base URL."""
+        url = f"{base_url.rstrip('/')}{endpoint}"
+        try:
+            response = self._session.request(
+                method=method.upper(),
+                url=url,
+                headers=self._auth_headers(),
+                params=params,
+                timeout=self.timeout,
+            )
+        except requests.exceptions.RequestException as exc:
+            msg = f"SERENE resource request failed: {exc}"
+            logger.warning(msg)
+            return False, msg, None
+
+        if not response.ok:
+            msg = f"SERENE resource unexpected status {response.status_code}: {url}"
+            logger.warning(msg)
+            return False, msg, None
+
+        text = response.text.strip()
+        if not text:
+            return False, "SERENE resource returned an empty response.", None
+        return True, "OK", text
+
     # ── Response parsing ────────────────────────────────────────────────────
 
     def parse_response_to_dataframe(
@@ -465,6 +563,18 @@ def _extract_string_list(data: Any, keys: tuple[str, ...]) -> list[str]:
             if key in data and isinstance(data[key], list):
                 return [str(x) for x in data[key]]
     return []
+
+
+def _parse_optional_utc(value: str | None) -> pd.Timestamp | None:
+    if not value:
+        return None
+    try:
+        parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(parsed):
+        return None
+    return parsed
 
 
 def _parse_calc_text_response(text: str) -> list[dict[str, Any]]:

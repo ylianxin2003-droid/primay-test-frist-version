@@ -142,7 +142,7 @@ def _render_sidebar() -> dict:
         f"ISO range: {params['start_time']} to {params['end_time']}"
     )
 
-    avail_vars = ["TEC", "MUF3000", "foF2", "MUF3000_depression", "foF2_depression"]
+    avail_vars = ["vTEC", "TEC", "MUF3000", "foF2", "MUF3000_depression", "foF2_depression"]
     selected_vars = st.sidebar.multiselect(
         "Variable selection",
         options=avail_vars,
@@ -226,9 +226,15 @@ def _do_load(params: dict) -> None:
         st.session_state.data = df
         st.session_state.status = status
         data_alerts = generate_alerts(df) if not df.empty else pd.DataFrame()
-        historical_alerts = generate_historical_risk_alerts(
-            params.get("start_time"),
-            params.get("end_time"),
+        has_serene_indices = (
+            not df.empty
+            and "variable" in df.columns
+            and df["variable"].isin(["Kp", "ap"]).any()
+        )
+        historical_alerts = (
+            pd.DataFrame()
+            if has_serene_indices
+            else generate_historical_risk_alerts(params.get("start_time"), params.get("end_time"))
         )
         st.session_state.alerts = pd.concat(
             [data_alerts, historical_alerts],

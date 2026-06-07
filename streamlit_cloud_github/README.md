@@ -76,6 +76,9 @@ Your public URL will be: `https://<app-name>-<user>.streamlit.app`
 
 - Default data source in the app is **Local sample file** (fast, no API quota)
 - Use **SERENE API** only with a **small region** (sidebar shows estimated API calls, max 50)
+- In **SERENE API** mode, the dashboard also downloads SERENE `Kp_ap.csv`
+  indices and uses Kp/ap together with AIDA variables (`vTEC`/`TEC`,
+  `MUF3000`, `foF2`) to generate prototype risk advisories.
 
 ---
 
