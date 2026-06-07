@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 class HistoricalRiskWindowsTest(unittest.TestCase):
-    def test_selected_range_generates_severe_historical_advisory(self):
+    def test_selected_range_generates_g5_historical_advisory(self):
         from alert_engine import generate_overall_risk
         from app_utils import generate_historical_risk_alerts
 
@@ -24,7 +24,7 @@ class HistoricalRiskWindowsTest(unittest.TestCase):
 
         overall, _summary = generate_overall_risk(alerts)
 
-        self.assertEqual(overall, "Severe")
+        self.assertEqual(overall, "G5 Extreme")
 
     def test_non_matching_range_generates_no_historical_advisory(self):
         from app_utils import generate_historical_risk_alerts

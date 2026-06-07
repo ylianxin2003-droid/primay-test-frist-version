@@ -320,7 +320,7 @@ class SereneClient:
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> tuple[bool, str, pd.DataFrame]:
-        """Fetch SERENE Kp/ap resource data and return dashboard rows."""
+        """Fetch SERENE Kp/ap API resource data and return dashboard rows."""
         ok, msg, data = self._request_from_base(
             "GET",
             "https://serene.bham.ac.uk",
@@ -331,9 +331,9 @@ class SereneClient:
 
         df = self.parse_kp_ap_csv(data, start_time=start_time, end_time=end_time)
         if df.empty:
-            return False, "SERENE Kp/ap resource returned no rows for the selected range.", df
+            return False, "SERENE Kp/ap API returned no rows for the selected range.", df
 
-        return True, f"Loaded {len(df)} Kp/ap row(s) from SERENE resources.", df
+        return True, f"Loaded {len(df)} Kp/ap row(s) from SERENE API.", df
 
     @staticmethod
     def parse_kp_ap_csv(
@@ -374,7 +374,7 @@ class SereneClient:
                     "variable": variable,
                     "value": float(value),
                     "model": "SERENE Indices",
-                    "source": "SERENE Kp_ap.csv",
+                    "source": "SERENE API Kp/ap",
                 })
 
         return pd.DataFrame(rows)

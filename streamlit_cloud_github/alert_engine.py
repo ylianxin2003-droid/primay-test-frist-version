@@ -48,22 +48,24 @@ THRESHOLDS: dict[str, dict[str, list[float]]] = {
         "unit": "index",
     },
     # NOAA G-scale style geomagnetic storm proxy from planetary Kp.
-    # Normal < 5, Watch G1/G2 5-7, Warning G3 7-8, Severe G4/G5 >= 8
+    # Normal < 5, then G1/G2/G3/G4/G5 from Kp 5/6/7/8/9.
     "Kp": {
-        "levels": [5, 7, 8],
+        "levels": [5, 6, 7, 8, 9],
         "risk_label": "Geomagnetic storm risk",
         "unit": "Kp",
     },
-    # ap roughly maps to Kp storm levels: ap 48 ~= Kp 5, 132 ~= Kp 7,
-    # 207 ~= Kp 8. This is used as supporting geomagnetic evidence.
+    # ap roughly maps to G levels: 48/80/132/207/400.
     "ap": {
-        "levels": [48, 132, 207],
+        "levels": [48, 80, 132, 207, 400],
         "risk_label": "Geomagnetic storm risk",
         "unit": "ap",
     },
 }
 
-RISK_LEVELS = ["Normal", "Watch", "Warning", "Severe"]
+RISK_LEVELS = [
+    "Normal", "Watch", "Warning", "Severe",
+    "G1 Minor", "G2 Moderate", "G3 Strong", "G4 Severe", "G5 Extreme",
+]
 
 # ── Impact / interpretation templates ───────────────────────────────────────
 
@@ -146,6 +148,26 @@ IMPACT_TEMPLATES: dict[str, dict[str, tuple[str, str]]] = {
             "Severe to extreme geomagnetic storm conditions indicated.",
             "Expect elevated risk to GNSS and HF communication services; use operational backups.",
         ),
+        "G1 Minor": (
+            "Minor geomagnetic storm conditions indicated.",
+            "Possible weak power grid fluctuations and minor HF/GNSS impacts at high latitudes.",
+        ),
+        "G2 Moderate": (
+            "Moderate geomagnetic storm conditions indicated.",
+            "HF propagation and GNSS performance may be degraded, especially at high latitudes.",
+        ),
+        "G3 Strong": (
+            "Strong geomagnetic storm conditions indicated.",
+            "GNSS accuracy, scintillation risk, and HF propagation may be degraded.",
+        ),
+        "G4 Severe": (
+            "Severe geomagnetic storm conditions indicated.",
+            "Elevated risk to GNSS and HF communication services; use operational backups.",
+        ),
+        "G5 Extreme": (
+            "Extreme geomagnetic storm conditions indicated.",
+            "Major GNSS/HF disruption is possible; operational backups and space weather procedures should be considered.",
+        ),
     },
 }
 
@@ -211,7 +233,7 @@ def generate_alerts(df: pd.DataFrame) -> pd.DataFrame:
 
             row = grp.loc[extreme_idx]
             value = float(row["value"])
-            risk_level = _classify_risk(value, levels)
+            risk_level = _classify_variable_risk(variable_name, value, levels)
             if risk_level == "Normal":
                 continue
 
@@ -244,9 +266,7 @@ def generate_alerts(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     alerts_df = pd.DataFrame(alerts)
-    alerts_df = alerts_df.sort_values("risk_level", key=lambda s: s.map({
-        "Severe": 0, "Warning": 1, "Watch": 2, "Normal": 3,
-    }))
+    alerts_df = alerts_df.sort_values("risk_level", key=lambda s: s.map(_risk_priority()))
     return alerts_df.reset_index(drop=True)
 
 
@@ -262,7 +282,7 @@ def generate_overall_risk(alerts: pd.DataFrame) -> tuple[str, str]:
     if "risk_level" not in alerts.columns:
         return "Unknown", "Unable to determine risk level from alert data."
 
-    priority = {"Severe": 0, "Warning": 1, "Watch": 2, "Normal": 3}
+    priority = _risk_priority()
     alert_risks = alerts["risk_level"].map(priority).fillna(3)
     worst_idx = alert_risks.idxmin() if not alert_risks.empty else None
 
@@ -340,15 +360,46 @@ def _classify_risk(value: float, levels: list[float]) -> str:
         if value < levels[2]:
             return "Warning"
         return "Severe"
-    else:
-        # Negative scaling — more negative = worse
-        if value > levels[0]:
-            return "Normal"
-        if value > levels[1]:
-            return "Watch"
-        if value > levels[2]:
-            return "Warning"
-        return "Severe"
+
+    # Negative scaling — more negative = worse
+    if value > levels[0]:
+        return "Normal"
+    if value > levels[1]:
+        return "Watch"
+    if value > levels[2]:
+        return "Warning"
+    return "Severe"
+
+
+def _classify_variable_risk(variable_name: str, value: float, levels: list[float]) -> str:
+    if variable_name.lower() in ("kp", "ap"):
+        return _classify_geomagnetic_risk(value, levels)
+    return _classify_risk(value, levels)
+
+
+def _classify_geomagnetic_risk(value: float, levels: list[float]) -> str:
+    labels = ["G1 Minor", "G2 Moderate", "G3 Strong", "G4 Severe", "G5 Extreme"]
+    if value < levels[0]:
+        return "Normal"
+    risk = labels[0]
+    for threshold, label in zip(levels, labels):
+        if value >= threshold:
+            risk = label
+    return risk
+
+
+def _risk_priority() -> dict[str, int]:
+    return {
+        "G5 Extreme": 0,
+        "G4 Severe": 1,
+        "Severe": 2,
+        "G3 Strong": 3,
+        "Warning": 4,
+        "G2 Moderate": 5,
+        "G1 Minor": 6,
+        "Watch": 7,
+        "Normal": 8,
+    }
 
 
 def _describe_threshold(
@@ -358,7 +409,7 @@ def _describe_threshold(
     unit: str,
 ) -> str:
     """Produce a human-readable description of the threshold crossing."""
-    risk = _classify_risk(value, levels)
+    risk = _classify_variable_risk(variable_name, value, levels)
     return (
         f"{variable_name} = {value:.2f} {unit} (threshold: {risk.lower()}, "
         f"bounds: {levels})"

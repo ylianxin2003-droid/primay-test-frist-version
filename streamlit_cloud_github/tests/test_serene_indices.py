@@ -27,7 +27,7 @@ class SereneIndicesTest(unittest.TestCase):
 
         self.assertEqual(set(df["variable"]), {"Kp", "ap"})
         self.assertEqual(len(df), 2)
-        self.assertEqual(df["source"].iloc[0], "SERENE Kp_ap.csv")
+        self.assertEqual(df["source"].iloc[0], "SERENE API Kp/ap")
 
     def test_kp_ap_rows_generate_geomagnetic_storm_risk(self):
         from alert_engine import generate_alerts, generate_overall_risk
@@ -54,8 +54,9 @@ class SereneIndicesTest(unittest.TestCase):
         alerts = generate_alerts(df)
         overall, _summary = generate_overall_risk(alerts)
 
-        self.assertEqual(overall, "Severe")
+        self.assertEqual(overall, "G5 Extreme")
         self.assertIn("Geomagnetic storm risk", set(alerts["alert_type"]))
+        self.assertIn("G5 Extreme", set(alerts["risk_level"]))
 
 
 if __name__ == "__main__":

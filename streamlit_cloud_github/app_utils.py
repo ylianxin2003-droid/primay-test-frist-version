@@ -91,7 +91,7 @@ def generate_historical_risk_alerts(start_time: str | None, end_time: str | None
             continue
         if selected_start <= window_end and selected_end >= window_start:
             risk_text = str(window["Risk"])
-            risk_level = "Severe" if risk_text.startswith(("G4", "G5")) else "Warning"
+            risk_level = risk_text if risk_text.startswith("G") else "Warning"
             reason = (
                 f"Selected range overlaps historical {risk_text} window "
                 f"({window['Select range']}); Kp {window['Kp']}, ap {window['ap']}."

@@ -326,7 +326,17 @@ def _render_main(params: dict) -> None:
     # ── ICAO-style risk alert panel ─────────────────────────────────────────
     st.subheader("ICAO-style prototype risk advisories")
     overall, summary = generate_overall_risk(alerts)
-    emoji = {"Normal": "🟢", "Watch": "🟡", "Warning": "🟠", "Severe": "🔴"}
+    emoji = {
+        "Normal": "🟢",
+        "Watch": "🟡",
+        "G1 Minor": "🟡",
+        "G2 Moderate": "🟠",
+        "Warning": "🟠",
+        "G3 Strong": "🟠",
+        "Severe": "🔴",
+        "G4 Severe": "🔴",
+        "G5 Extreme": "🔴",
+    }
     st.markdown(f"**Overall risk:** {emoji.get(overall, '⚪')} {overall}")
     st.caption(summary)
     st.caption(DISCLAIMER)
@@ -334,6 +344,11 @@ def _render_main(params: dict) -> None:
     if alerts.empty:
         st.success("No active prototype advisories — parameters within normal range.")
     else:
+        if overall in {"G5 Extreme", "G4 Severe", "Severe"}:
+            st.error(f"Active prototype warning: {overall}")
+        else:
+            st.warning(f"Active prototype advisory: {overall}")
+
         col_a, col_b = st.columns(2)
         with col_a:
             st.plotly_chart(
