@@ -20,6 +20,7 @@ from app_utils import (
     combine_date_time_iso,
     generate_historical_risk_alerts,
     historical_risk_windows,
+    parse_select_range_to_widgets,
 )
 from config import SERENE_API_TOKEN, reload_config, validate_config
 from data_loader import LoadStatus, load_data, resolve_local_file
@@ -255,6 +256,28 @@ def _source_label(status: LoadStatus) -> str:
     return mapping.get(status.source, status.source)
 
 
+def _apply_selected_historical_range(selected_rows: list[int], windows: pd.DataFrame) -> None:
+    if not selected_rows:
+        return
+    row_index = selected_rows[0]
+    if row_index >= len(windows):
+        return
+    parsed = parse_select_range_to_widgets(str(windows.iloc[row_index]["Select range"]))
+    if parsed is None:
+        return
+    if any(st.session_state.get(key) != value for key, value in parsed.items()):
+        st.session_state.pending_time_range_widgets = parsed
+        st.rerun()
+
+
+def _apply_pending_time_range() -> None:
+    pending = st.session_state.pop("pending_time_range_widgets", None)
+    if not pending:
+        return
+    for key, value in pending.items():
+        st.session_state[key] = value
+
+
 def _render_connection_panel() -> None:
     st.subheader("SERENE API & data status")
 
@@ -296,12 +319,20 @@ def _render_main(params: dict) -> None:
     _render_connection_panel()
 
     st.subheader("Historical risk windows")
-    st.dataframe(
-        historical_risk_windows(),
+    windows = historical_risk_windows()
+    selection = st.dataframe(
+        windows,
         use_container_width=True,
         hide_index=True,
         height=260,
+        selection_mode="single-row",
+        on_select="rerun",
     )
+    if isinstance(selection, dict):
+        selected_rows = selection.get("selection", {}).get("rows", [])
+    else:
+        selected_rows = getattr(getattr(selection, "selection", None), "rows", [])
+    _apply_selected_historical_range(selected_rows, windows)
     st.markdown("---")
 
     if st.session_state.data.empty:
@@ -434,6 +465,7 @@ def _render_main(params: dict) -> None:
 
 
 def main() -> None:
+    _apply_pending_time_range()
     params = _render_sidebar()
     _render_main(params)
 

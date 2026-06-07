@@ -175,6 +175,19 @@ def build_data_preview(df: pd.DataFrame, alerts: pd.DataFrame) -> pd.DataFrame:
     return preview
 
 
+def parse_select_range_to_widgets(select_range: str) -> dict[str, Any] | None:
+    """Parse a table range into sidebar widget state values."""
+    start, end = _parse_range(select_range)
+    if start is None or end is None:
+        return None
+    return {
+        "start_date": start.date(),
+        "start_time_clock": start.time().replace(microsecond=0),
+        "end_date": end.date(),
+        "end_time_clock": end.time().replace(microsecond=0),
+    }
+
+
 def _match_alert(row: pd.Series, alerts: pd.DataFrame) -> pd.Series | None:
     candidates = alerts.copy()
     if "variable" in row and "reason" in candidates.columns:
