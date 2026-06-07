@@ -9,6 +9,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 class HistoricalRiskWindowsTest(unittest.TestCase):
+    def test_historical_table_contains_recent_serene_events(self):
+        from app_utils import historical_risk_windows
+
+        windows = historical_risk_windows()
+
+        self.assertIn("Risk", windows.columns)
+        self.assertIn("G5 Extreme geomagnetic storm", set(windows["Risk"]))
+        self.assertIn(
+            "2024-05-10T18:00:00 to 2024-05-11T18:00:00",
+            set(windows["Select range"]),
+        )
+
     def test_selected_range_generates_g5_historical_advisory(self):
         from alert_engine import generate_overall_risk
         from app_utils import generate_historical_risk_alerts

@@ -21,56 +21,91 @@ def combine_date_time_iso(date_value: date, time_value: time) -> str:
 
 
 def historical_risk_windows() -> pd.DataFrame:
-    """Known high-risk geomagnetic windows used for dashboard demos."""
+    """Recent high-risk geomagnetic storm windows from SERENE Kp/ap data."""
     return pd.DataFrame([
         {
-            "Time UTC": "2024-05-11 00:00",
+            "Time UTC": "2017-09-08 00:00 to 03:00",
+            "Kp": "8.0",
+            "ap": "207",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2017-09-08T00:00:00 to 2017-09-08T03:00:00",
+        },
+        {
+            "Time UTC": "2017-09-08 12:00 to 15:00",
+            "Kp": "8.3",
+            "ap": "236",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2017-09-08T12:00:00 to 2017-09-08T15:00:00",
+        },
+        {
+            "Time UTC": "2023-03-24 03:00 to 06:00",
+            "Kp": "8.0",
+            "ap": "207",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2023-03-24T03:00:00 to 2023-03-24T06:00:00",
+        },
+        {
+            "Time UTC": "2023-04-23 18:00 to 21:00",
+            "Kp": "8.3",
+            "ap": "236",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2023-04-23T18:00:00 to 2023-04-23T21:00:00",
+        },
+        {
+            "Time UTC": "2023-04-24 03:00 to 06:00",
+            "Kp": "8.0",
+            "ap": "207",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2023-04-24T03:00:00 to 2023-04-24T06:00:00",
+        },
+        {
+            "Time UTC": "2024-03-24 15:00 to 18:00",
+            "Kp": "8.3",
+            "ap": "236",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2024-03-24T15:00:00 to 2024-03-24T18:00:00",
+        },
+        {
+            "Time UTC": "2024-05-10 18:00 to 2024-05-11 18:00",
             "Kp": "9.0",
             "ap": "400",
-            "Risk": "G5 Extreme",
-            "Select range": "2024-05-10T18:00:00 to 2024-05-11T06:00:00",
+            "Risk": "G5 Extreme geomagnetic storm",
+            "Select range": "2024-05-10T18:00:00 to 2024-05-11T18:00:00",
         },
         {
-            "Time UTC": "2024-05-11 09:00",
-            "Kp": "9.0",
-            "ap": "400",
-            "Risk": "G5 Extreme",
-            "Select range": "2024-05-11T03:00:00 to 2024-05-11T15:00:00",
+            "Time UTC": "2024-08-12 12:00 to 15:00",
+            "Kp": "8.0",
+            "ap": "207",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2024-08-12T12:00:00 to 2024-08-12T15:00:00",
         },
         {
-            "Time UTC": "2024-05-10 18:00/21:00",
+            "Time UTC": "2024-10-10 18:00 to 2024-10-11 03:00",
             "Kp": "8.7",
             "ap": "300",
-            "Risk": "G4 Severe",
-            "Select range": "2024-05-10T12:00:00 to 2024-05-11T00:00:00",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2024-10-10T18:00:00 to 2024-10-11T03:00:00",
         },
         {
-            "Time UTC": "2024-05-11 03:00/06:00/12:00/15:00",
-            "Kp": "8.3-8.7",
-            "ap": "236-300",
-            "Risk": "G4 Severe",
-            "Select range": "2024-05-11T00:00:00 to 2024-05-11T18:00:00",
+            "Time UTC": "2025-01-01 15:00 to 18:00",
+            "Kp": "8.0",
+            "ap": "207",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2025-01-01T15:00:00 to 2025-01-01T18:00:00",
         },
         {
-            "Time UTC": "2024-10-10 18:00/21:00",
-            "Kp": "8.3-8.7",
-            "ap": "236-300",
-            "Risk": "G4 Severe",
-            "Select range": "2024-10-10T12:00:00 to 2024-10-11T00:00:00",
-        },
-        {
-            "Time UTC": "2025-11-12 00:00/03:00",
+            "Time UTC": "2025-11-12 00:00 to 06:00",
             "Kp": "8.7",
             "ap": "300",
-            "Risk": "G4 Severe",
-            "Select range": "2025-11-11T18:00:00 to 2025-11-12T06:00:00",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2025-11-12T00:00:00 to 2025-11-12T06:00:00",
         },
         {
-            "Time UTC": "2026-01-19 18:00/21:00",
-            "Kp": "8.3-8.7",
-            "ap": "236-300",
-            "Risk": "G4 Severe",
-            "Select range": "2026-01-19T12:00:00 to 2026-01-20T00:00:00",
+            "Time UTC": "2026-01-19 18:00 to 2026-01-20 00:00",
+            "Kp": "8.7",
+            "ap": "300",
+            "Risk": "G4 Severe geomagnetic storm",
+            "Select range": "2026-01-19T18:00:00 to 2026-01-20T00:00:00",
         },
     ])
 
@@ -91,7 +126,7 @@ def generate_historical_risk_alerts(start_time: str | None, end_time: str | None
             continue
         if selected_start <= window_end and selected_end >= window_start:
             risk_text = str(window["Risk"])
-            risk_level = risk_text if risk_text.startswith("G") else "Warning"
+            risk_level = _extract_risk_level(risk_text)
             reason = (
                 f"Selected range overlaps historical {risk_text} window "
                 f"({window['Select range']}); Kp {window['Kp']}, ap {window['ap']}."
@@ -125,6 +160,13 @@ def _parse_range(value: str) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     if not sep:
         return None, None
     return _parse_datetime(start_text), _parse_datetime(end_text)
+
+
+def _extract_risk_level(risk_text: str) -> str:
+    parts = risk_text.split()
+    if len(parts) >= 2 and parts[0].startswith("G"):
+        return " ".join(parts[:2])
+    return "Warning"
 
 
 def _parse_datetime(value: str | None) -> pd.Timestamp | None:
