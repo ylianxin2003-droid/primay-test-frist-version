@@ -175,7 +175,7 @@ def build_data_preview(df: pd.DataFrame, alerts: pd.DataFrame) -> pd.DataFrame:
     return preview
 
 
-def mappable_variable_options(df: pd.DataFrame) -> list[str]:
+def mappable_variable_options(df: pd.DataFrame, contains_any: tuple[str, ...] = ()) -> list[str]:
     """Return variables that have numeric latitude and longitude rows."""
     required = {"variable", "lat", "lon"}
     if df.empty or not required.issubset(df.columns):
@@ -187,7 +187,14 @@ def mappable_variable_options(df: pd.DataFrame) -> list[str]:
     work = work.dropna(subset=["lat", "lon"])
     if work.empty:
         return []
-    return sorted(work["variable"].dropna().astype(str).unique())
+    variables = sorted(work["variable"].dropna().astype(str).unique())
+    if contains_any:
+        needles = tuple(part.lower() for part in contains_any)
+        variables = [
+            var for var in variables
+            if any(part in var.lower() for part in needles)
+        ]
+    return variables
 
 
 def parse_select_range_to_widgets(select_range: str) -> dict[str, Any] | None:

@@ -45,6 +45,7 @@ class MapPlotTest(unittest.TestCase):
         ])
 
         self.assertEqual(mappable_variable_options(df), ["TEC"])
+        self.assertEqual(mappable_variable_options(df, contains_any=("muf", "fof2")), [])
 
     def test_calc_grid_parser_fills_missing_point_coordinates(self):
         from app_utils import mappable_variable_options

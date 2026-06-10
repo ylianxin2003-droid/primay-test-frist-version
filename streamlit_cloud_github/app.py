@@ -387,29 +387,34 @@ def _render_main(params: dict) -> None:
 
     var_options = sorted(df["variable"].dropna().unique()) if "variable" in df.columns else []
     map_var_options = mappable_variable_options(df)
-    default_plot_index = (
+    default_time_index = (
         var_options.index(map_var_options[0])
         if map_var_options and map_var_options[0] in var_options
         else 0
     )
-    selected_var = st.selectbox(
-        "Variable for plots",
+    selected_time_var = st.selectbox(
+        "Variable for time series",
         var_options or [None],
-        index=default_plot_index if var_options else 0,
+        index=default_time_index if var_options else 0,
     )
+    selected_map_var = None
+    if map_var_options:
+        selected_map_var = st.selectbox("Variable for map", map_var_options)
+    else:
+        st.info("No variables with latitude/longitude are available for map display.")
 
     col_ts, col_map = st.columns(2)
     with col_ts:
         st.subheader("Time series")
         st.plotly_chart(
-            create_time_series_plot(df, variable=selected_var),
+            create_time_series_plot(df, variable=selected_time_var),
             use_container_width=True,
             key="overview_time_series",
         )
     with col_map:
         st.subheader("Map / scatter (lat/lon)")
         st.plotly_chart(
-            create_map_plot(df, variable=selected_var),
+            create_map_plot(df, variable=selected_map_var),
             use_container_width=True,
             key="overview_map",
         )
@@ -418,8 +423,10 @@ def _render_main(params: dict) -> None:
         tab_gnss, tab_hf, tab_raw = st.tabs(["GNSS", "HF Communication", "Raw data"])
 
         with tab_gnss:
-            gnss_vars = [v for v in var_options if "tec" in v.lower()]
-            for i, var in enumerate(gnss_vars or var_options[:1]):
+            gnss_vars = mappable_variable_options(df, contains_any=("tec",))
+            if not gnss_vars:
+                st.info("No GNSS variables with latitude/longitude are available for map display.")
+            for i, var in enumerate(gnss_vars):
                 st.plotly_chart(
                     create_map_plot(df, variable=var, title=f"GNSS — {var}"),
                     use_container_width=True,
@@ -427,8 +434,10 @@ def _render_main(params: dict) -> None:
                 )
 
         with tab_hf:
-            hf_vars = [v for v in var_options if "muf" in v.lower() or "fof2" in v.lower()]
-            for i, var in enumerate(hf_vars or var_options[:1]):
+            hf_vars = mappable_variable_options(df, contains_any=("muf", "fof2"))
+            if not hf_vars:
+                st.info("No HF variables with latitude/longitude are available for map display.")
+            for i, var in enumerate(hf_vars):
                 st.plotly_chart(
                     create_map_plot(df, variable=var, title=f"HF — {var}"),
                     use_container_width=True,
