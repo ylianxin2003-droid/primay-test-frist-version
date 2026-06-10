@@ -142,10 +142,6 @@ def create_map_plot(
     if variable:
         work = work[work["variable"] == variable]
 
-    # Keep maps responsive for large local grid files.
-    if len(work) > 3000:
-        work = work.sample(n=3000, random_state=42)
-
     if "lat" not in work.columns or "lon" not in work.columns:
         fig = go.Figure()
         fig.add_annotation(
@@ -153,6 +149,23 @@ def create_map_plot(
             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
         )
         return fig
+
+    for col in ("lat", "lon", "value"):
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
+
+    work = work.dropna(subset=["lat", "lon", "value"])
+    if work.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text=f"No mappable lat/lon data for {variable or 'selected data'}.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+        )
+        return fig
+
+    # Keep maps responsive for large API point grids.
+    if len(work) > 3000:
+        work = work.sample(n=3000, random_state=42)
 
     # If multiple time steps, use the latest.
     if "time" in work.columns:

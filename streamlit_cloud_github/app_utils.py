@@ -175,6 +175,21 @@ def build_data_preview(df: pd.DataFrame, alerts: pd.DataFrame) -> pd.DataFrame:
     return preview
 
 
+def mappable_variable_options(df: pd.DataFrame) -> list[str]:
+    """Return variables that have numeric latitude and longitude rows."""
+    required = {"variable", "lat", "lon"}
+    if df.empty or not required.issubset(df.columns):
+        return []
+
+    work = df[list(required)].copy()
+    work["lat"] = pd.to_numeric(work["lat"], errors="coerce")
+    work["lon"] = pd.to_numeric(work["lon"], errors="coerce")
+    work = work.dropna(subset=["lat", "lon"])
+    if work.empty:
+        return []
+    return sorted(work["variable"].dropna().astype(str).unique())
+
+
 def parse_select_range_to_widgets(select_range: str) -> dict[str, Any] | None:
     """Parse a table range into sidebar widget state values."""
     start, end = _parse_range(select_range)

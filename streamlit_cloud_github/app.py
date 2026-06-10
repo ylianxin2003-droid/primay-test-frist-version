@@ -20,6 +20,7 @@ from app_utils import (
     combine_date_time_iso,
     generate_historical_risk_alerts,
     historical_risk_windows,
+    mappable_variable_options,
     parse_select_range_to_widgets,
 )
 from config import SERENE_API_TOKEN, reload_config, validate_config
@@ -385,7 +386,17 @@ def _render_main(params: dict) -> None:
     st.dataframe(build_data_preview(df, alerts).head(100), use_container_width=True)
 
     var_options = sorted(df["variable"].dropna().unique()) if "variable" in df.columns else []
-    selected_var = st.selectbox("Variable for plots", var_options or [None])
+    map_var_options = mappable_variable_options(df)
+    default_plot_index = (
+        var_options.index(map_var_options[0])
+        if map_var_options and map_var_options[0] in var_options
+        else 0
+    )
+    selected_var = st.selectbox(
+        "Variable for plots",
+        var_options or [None],
+        index=default_plot_index if var_options else 0,
+    )
 
     col_ts, col_map = st.columns(2)
     with col_ts:
