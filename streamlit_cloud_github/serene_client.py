@@ -511,10 +511,16 @@ class SereneClient:
                     )
                     if sub.empty:
                         continue
-                    if "lat" not in sub.columns and item.get("lat") is not None:
-                        sub["lat"] = item["lat"]
-                    if "lon" not in sub.columns and item.get("lon") is not None:
-                        sub["lon"] = item["lon"]
+                    if item.get("lat") is not None:
+                        if "lat" not in sub.columns:
+                            sub["lat"] = item["lat"]
+                        else:
+                            sub["lat"] = sub["lat"].fillna(item["lat"])
+                    if item.get("lon") is not None:
+                        if "lon" not in sub.columns:
+                            sub["lon"] = item["lon"]
+                        else:
+                            sub["lon"] = sub["lon"].fillna(item["lon"])
                     frames.append(sub)
                 if frames:
                     return pd.concat(frames, ignore_index=True)

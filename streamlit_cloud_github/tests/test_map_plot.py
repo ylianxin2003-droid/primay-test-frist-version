@@ -46,6 +46,29 @@ class MapPlotTest(unittest.TestCase):
 
         self.assertEqual(mappable_variable_options(df), ["TEC"])
 
+    def test_calc_grid_parser_fills_missing_point_coordinates(self):
+        from app_utils import mappable_variable_options
+        from serene_client import SereneClient
+
+        batch = [
+            {
+                "lat": 60.0,
+                "lon": -10.0,
+                "model": "AIDA",
+                "response": {
+                    "data": [
+                        {"variable": "TEC", "value": 8.2, "lat": None, "lon": None},
+                    ],
+                },
+            },
+        ]
+
+        df = SereneClient().parse_response_to_dataframe(batch, model="AIDA")
+
+        self.assertEqual(mappable_variable_options(df), ["TEC"])
+        self.assertEqual(float(df.loc[0, "lat"]), 60.0)
+        self.assertEqual(float(df.loc[0, "lon"]), -10.0)
+
 
 if __name__ == "__main__":
     unittest.main()
