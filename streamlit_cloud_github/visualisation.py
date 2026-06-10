@@ -60,11 +60,6 @@ def create_time_series_plot(
         return fig
 
     work = df.copy()
-    if "time" not in work.columns:
-        # Try to use the index or create a synthetic time axis.
-        work["time"] = pd.to_datetime("now")
-    work["time"] = pd.to_datetime(work["time"])
-
     if variable:
         work = work[work["variable"] == variable]
 
@@ -76,14 +71,27 @@ def create_time_series_plot(
         )
         return fig
 
+    if "time" in work.columns:
+        work["time"] = pd.to_datetime(work["time"], errors="coerce")
+    else:
+        work["time"] = pd.NaT
+    if work["time"].notna().any():
+        x_col = "time"
+        x_label = "Time"
+    else:
+        work = work.reset_index(drop=True)
+        work["sample"] = work.index + 1
+        x_col = "sample"
+        x_label = "API sample"
+
     # Aggregate: mean value per time step per variable.
-    grouped = work.groupby(["time", "variable"], as_index=False)["value"].mean()
+    grouped = work.groupby([x_col, "variable"], as_index=False)["value"].mean()
 
     if grouped["variable"].nunique() <= 1:
         fig = px.line(
-            grouped, x="time", y="value", color="variable",
+            grouped, x=x_col, y="value", color="variable",
             title=title or "Ionospheric parameter over time",
-            labels={"value": "Value", "time": "Time", "variable": "Variable"},
+            labels={"value": "Value", x_col: x_label, "variable": "Variable"},
         )
     else:
         fig = make_subplots(
@@ -95,9 +103,10 @@ def create_time_series_plot(
         for i, var in enumerate(grouped["variable"].unique()):
             sub = grouped[grouped["variable"] == var]
             fig.add_trace(
-                go.Scatter(x=sub["time"], y=sub["value"], mode="lines+markers", name=var),
+                go.Scatter(x=sub[x_col], y=sub["value"], mode="lines+markers", name=var),
                 row=i + 1, col=1,
             )
+        fig.update_xaxes(title_text=x_label, row=grouped["variable"].nunique(), col=1)
         fig.update_layout(
             title_text=title or "Ionospheric parameters over time",
             height=250 * grouped["variable"].nunique(),
@@ -169,8 +178,10 @@ def create_map_plot(
 
     # If multiple time steps, use the latest.
     if "time" in work.columns:
-        work["time"] = pd.to_datetime(work["time"])
-        work = work[work["time"] == work["time"].max()]
+        work["time"] = pd.to_datetime(work["time"], errors="coerce")
+        valid_times = work["time"].dropna()
+        if not valid_times.empty:
+            work = work[work["time"] == valid_times.max()]
 
     fig = px.scatter_geo(
         work,

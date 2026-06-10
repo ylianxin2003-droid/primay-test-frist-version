@@ -69,6 +69,45 @@ class MapPlotTest(unittest.TestCase):
         self.assertEqual(float(df.loc[0, "lat"]), 60.0)
         self.assertEqual(float(df.loc[0, "lon"]), -10.0)
 
+    def test_map_keeps_tec_points_without_valid_time(self):
+        from visualisation import create_map_plot
+
+        df = pd.DataFrame([
+            {
+                "time": None,
+                "lat": 60.0,
+                "lon": -10.0,
+                "variable": "TEC",
+                "value": 8.2,
+            },
+            {
+                "time": None,
+                "lat": 60.0,
+                "lon": -5.0,
+                "variable": "TEC",
+                "value": 8.6,
+            },
+        ])
+
+        fig = create_map_plot(df, variable="TEC")
+
+        point_count = sum(len(trace.lat) for trace in fig.data if hasattr(trace, "lat"))
+        self.assertEqual(point_count, 2)
+        self.assertEqual(len(fig.layout.annotations), 0)
+
+    def test_time_series_uses_sample_index_without_valid_time(self):
+        from visualisation import create_time_series_plot
+
+        df = pd.DataFrame([
+            {"time": None, "variable": "TEC", "value": 8.2},
+            {"time": None, "variable": "TEC", "value": 8.6},
+        ])
+
+        fig = create_time_series_plot(df, variable="TEC")
+
+        point_count = sum(len(trace.x) for trace in fig.data if hasattr(trace, "x"))
+        self.assertEqual(point_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
