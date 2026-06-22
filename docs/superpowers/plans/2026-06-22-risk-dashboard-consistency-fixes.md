@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make historical event ranges, global alerts, regional forecast maps, and alert charts internally consistent and prepare a local Claude Code handoff.
+**Goal:** Make historical event ranges, global alerts, regional forecast maps, and alert charts internally consistent.
 
 **Architecture:** Keep Kp/ap as one global geomagnetic context while regional maps remain driven only by spatial AIDA variables. Correct presentation at the alert-generation and visualisation boundaries without changing the official AIDA calculation adapter.
 
@@ -53,11 +53,7 @@
 - [ ] Label `Now` as the latest loaded AIDA state and global Kp/ap as excluded.
 - [ ] Show peak Kp/ap metrics so they agree with the selected-range advisory.
 
-### Task 5: Handoff and delivery
+### Task 5: Verification and delivery
 
-**Files:**
-- Create: `CLAUDE_CODE_HANDOFF.md`
-
-- [ ] Document fixed issues, known scientific limitations, setup, tests, and Streamlit commands without secrets.
 - [ ] Run all unit tests, compileall, Streamlit AppTest, and live deployment checks.
 - [ ] Push a branch without `codex` in its name, merge the PR, and clone the merged main branch to local folder `dashboard-project`.
