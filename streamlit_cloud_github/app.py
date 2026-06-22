@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -13,6 +13,7 @@ from alert_engine import DISCLAIMER, generate_alerts, generate_overall_risk
 from app_utils import (
     build_data_preview,
     combine_date_time_iso,
+    default_time_range,
     generate_historical_risk_alerts,
     historical_risk_windows,
     mappable_variable_options,
@@ -85,9 +86,9 @@ def _render_sidebar() -> dict:
     params["model"] = "AIDA"
     st.sidebar.caption("Verified model: AIDA")
 
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    default_start = now - timedelta(hours=6)
+    default_start, default_end = default_time_range()
     st.sidebar.markdown("#### Time range")
+    st.sidebar.caption("Default end time is 15 minutes behind UTC to allow AIDA publication.")
 
     start_date_col, start_time_col = st.sidebar.columns(2)
     with start_date_col:
@@ -102,11 +103,11 @@ def _render_sidebar() -> dict:
 
     end_date_col, end_time_col = st.sidebar.columns(2)
     with end_date_col:
-        end_date = st.date_input("End date", value=now.date(), key="end_date")
+        end_date = st.date_input("End date", value=default_end.date(), key="end_date")
     with end_time_col:
         end_clock = st.time_input(
             "End time",
-            value=now.time(),
+            value=default_end.time(),
             step=timedelta(minutes=1),
             key="end_time_clock",
         )

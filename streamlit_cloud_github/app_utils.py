@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -18,6 +18,13 @@ DISCLAIMER = (
 def combine_date_time_iso(date_value: date, time_value: time) -> str:
     """Combine separate Streamlit date/time values into an ISO 8601 string."""
     return datetime.combine(date_value, time_value).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def default_time_range(reference_time: datetime | None = None) -> tuple[datetime, datetime]:
+    """Return a six-hour UTC window ending after AIDA's publication delay."""
+    now = (reference_time or datetime.now(timezone.utc)).replace(microsecond=0)
+    end = now - timedelta(minutes=15)
+    return end - timedelta(hours=6), end
 
 
 def historical_risk_windows() -> pd.DataFrame:
