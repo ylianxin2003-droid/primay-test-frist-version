@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from datetime import date, time
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 
@@ -77,6 +77,16 @@ class DashboardSettingsTest(unittest.TestCase):
         value = combine_date_time_iso(date(2026, 6, 7), time(12, 0, 43))
 
         self.assertEqual(value, "2026-06-07T12:00:43")
+
+    def test_default_time_range_avoids_unpublished_near_realtime_output(self):
+        from app_utils import default_time_range
+
+        now = datetime(2026, 6, 22, 18, 49, 37, tzinfo=timezone.utc)
+
+        start, end = default_time_range(now)
+
+        self.assertEqual(end, now.replace(microsecond=0) - timedelta(minutes=15))
+        self.assertEqual(start, end - timedelta(hours=6))
 
 
 if __name__ == "__main__":
