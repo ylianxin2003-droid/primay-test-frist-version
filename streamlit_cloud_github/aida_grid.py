@@ -35,6 +35,16 @@ def estimate_target_points(region: dict[str, float], step: float) -> int:
     return int(len(latitudes) * len(longitudes))
 
 
+def normalise_aida_variables(variables: list[str] | None) -> list[str]:
+    """Return supported dashboard variable names with aliases resolved."""
+    requested = variables or list(AIDA_VARIABLES)
+    selected = list(dict.fromkeys(_VARIABLE_ALIASES.get(name, name) for name in requested))
+    unknown = [name for name in selected if name not in AIDA_VARIABLES]
+    if unknown:
+        raise AidaGridError(f"Unsupported AIDA variable(s): {', '.join(unknown)}")
+    return selected
+
+
 def sample_aida_hdf5(
     payload: bytes,
     region: dict[str, float],
@@ -66,11 +76,7 @@ def sample_aida_hdf5(
         if target_lons[0] < -180 or target_lons[-1] > 180:
             raise AidaGridError("Longitude bounds must be within -180 and 180 degrees.")
 
-        requested = variables or list(AIDA_VARIABLES)
-        selected = list(dict.fromkeys(_VARIABLE_ALIASES.get(name, name) for name in requested))
-        unknown = [name for name in selected if name not in AIDA_VARIABLES]
-        if unknown:
-            raise AidaGridError(f"Unsupported AIDA variable(s): {', '.join(unknown)}")
+        selected = normalise_aida_variables(variables)
 
         output_time = pd.to_datetime(timestamp, errors="coerce", utc=True)
         if pd.isna(output_time):
