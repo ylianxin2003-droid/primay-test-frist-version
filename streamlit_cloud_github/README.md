@@ -1,87 +1,83 @@
 # Aviation Space Weather Risk Forecast Dashboard
 
 Streamlit dissertation prototype using authenticated SERENE AIDA ionospheric
-model outputs. It monitors spatial ionospheric parameters and creates
-transparent, rule-based GNSS/HF risk indications.
+model outputs. It creates transparent, rule-based GNSS/HF risk indications from
+spatial ionospheric parameters.
 
 > Academic prototype only. It is not an official ICAO advisory system and must
 > not be used for operational aviation decisions.
 
-## Data flow
+## Correct API data flow
 
 ```text
-Streamlit Cloud Secrets
-  -> authenticated SERENE AIDA output catalogue
-  -> one param_2d HDF5 download per selected output time
-  -> exact local bounding-box/grid sampling in memory
-  -> standard DataFrame: time, lat, lon, variable, value, model
-  -> threshold alerts + short-term trend/persistence forecast
-  -> maps, time series, alert table and global Kp/ap context
+Streamlit Secrets
+  -> GET https://spaceweather.bham.ac.uk/api/download-output/
+  -> one raw AIDA HDF5 state per distinct requested time
+  -> official AIDAState.readFile() and AIDAState.calc()
+  -> exact local bounding-box/grid calculation
+  -> time, lat, lon, variable, value, model DataFrame
+  -> maps, alerts and short-horizon prototype forecasts
 ```
 
-Changing the map extent or grid spacing does not create extra AIDA downloads.
-The full AIDA product is loaded once for each distinct output time, then any
-number of requested map points is calculated locally. Start and end times that
-select the same output are deduplicated.
+Changing the map extent or spacing changes only local calculation and plotting.
+It does not create one API request per point. Identical time/latency requests
+are deduplicated.
 
-## Supported data
+## Upstream scientific implementation
 
-- Spatial AIDA parameters: `TEC`, `foF2`, `MUF3000F2`, `NmF2`, `hmF2`.
-- Global indices: `Kp` and `ap`, shown as context and time series only.
-- Historical event shortcuts begin in 2024, matching the available archive.
+Raw-state interpretation and scientific grid calculation use Benjamin Reid's
+MIT-licensed [`breid-phys/aida-ionosphere`](https://github.com/breid-phys/aida-ionosphere)
+package, pinned to `v0.1.3`. The authenticated request follows its official
+[`downloadOutput` implementation](https://github.com/breid-phys/aida-ionosphere/blob/main/aida/api.py).
+Nearby source comments identify every boundary that relies on this contract;
+the dashboard does not copy the upstream scientific model implementation.
 
-Kp is a global three-hour index, so it is deliberately excluded from regional
-risk maps. Regional maps use only spatial AIDA variables. High absolute TEC is
-also not, by itself, proof of GNSS risk; gradients, anomalies, variability and
-scintillation would require additional data and validation.
+Supported spatial fields are `TEC`, `foF2`, `MUF3000F2` (upstream
+`MUF3000`), `NmF2`, and `hmF2`. Kp/ap are global planetary indices and are
+shown only as global context, never as regional map cells.
 
-## Forecast method
+## Forecast limitations
 
-The current forecast is a transparent research prototype, not a trained AI
-model. With multiple samples it extrapolates the recent local trend to `Now`,
-`+1h`, `+3h` and `+6h`, then applies documented thresholds. With one sample it
-uses low-confidence persistence. Displayed probability and confidence are
-heuristic indicators and are not statistically calibrated probabilities.
+The forecast is a transparent research prototype, not a trained AI model. It
+uses short recent trends when multiple states are available and low-confidence
+persistence otherwise. Displayed probability/confidence values are heuristic,
+not statistically calibrated. High absolute TEC alone is not proof of GNSS
+risk; gradients, anomalies, variability and scintillation need additional data.
 
-## Repository layout
+## Streamlit Community Cloud deployment
 
-```text
-app.py                       Streamlit page and controls
-config.py                    Secrets/environment configuration
-serene_client.py             Authenticated catalogue/download client
-aida_grid.py                 HDF5 validation and exact local interpolation
-data_loader.py               Download deduplication and data assembly
-alert_engine.py              Rule-based prototype alerts
-forecast_engine.py           Trend/persistence risk forecast
-visualisation.py             Parameter charts and maps
-forecast_visualisation.py    Regional forecast map
-tests/                        Automated regression tests
-```
+The upstream package requires `pandas<2` and `numpy<2`. Deploy with **Python
+3.11**. Streamlit Community Cloud cannot change an existing app's Python version
+in place, so preserve the URL and Secrets, delete the existing app, then deploy
+it again and select Python 3.11 under **Advanced settings**. See the
+[official Streamlit instructions](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app/upgrade-python).
 
-## Streamlit Cloud deployment
-
-Add these values under **App settings -> Secrets**:
+Use `streamlit_cloud_github/app.py` as the entrypoint and configure:
 
 ```toml
-SERENE_API_BASE_URL = "https://serene.bham.ac.uk"
-SERENE_API_TOKEN = "your-api-token-here"
+SERENE_API_BASE_URL = "https://spaceweather.bham.ac.uk"
+SERENE_API_TOKEN = "your-new-api-token"
 SERENE_API_TIMEOUT = "30"
 SERENE_AUTH_SCHEME = "Token"
 ```
 
-The client detects a redirect to the website login form and reports it clearly:
-a Chrome login session cannot authenticate Streamlit Cloud, so the supplied API
-token must have permission to read the AIDA output catalogue and HDF5 download.
+Any token pasted into chat, screenshots, commits, or public files must be
+revoked. Never reuse the previously exposed token.
 
-## Local development
+## Verification
+
+After deployment:
+
+1. Click **Test SERENE API connection** and expect `Connected to SERENE AIDA raw-output API`.
+2. Load a small region and confirm AIDA maps appear.
+3. Compare a global 30-degree grid (91 local points) and 2-degree grid (16,471
+   local points) with the same times. Raw dataset download count must not change.
+4. Confirm Kp/ap appear only in the global geomagnetic panel.
+
+Local automated tests:
 
 ```bash
-pip install -r requirements.txt
-cp .env.example .env
-python -m streamlit run app.py
 python -m unittest discover -s tests -v
 ```
 
-No local scientific dataset is used as a silent fallback. A failed catalogue or
-download request is shown as an API error so that a demo never presents sample
-data as live SERENE data.
+No local scientific sample dataset is used as a silent fallback.

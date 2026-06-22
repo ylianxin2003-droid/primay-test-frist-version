@@ -139,7 +139,10 @@ def _render_sidebar() -> dict:
             },
             params["grid_step"],
         )
-        st.caption(f"Local map points: {local_points:,}. AIDA is downloaded once per output time.")
+        st.caption(
+            f"Local map points: {local_points:,}. One raw AIDA state is downloaded "
+            "per output time; this grid is calculated locally."
+        )
 
     params["region"] = {
         "lat_min": lat_min,
@@ -175,7 +178,7 @@ def _do_load(params: dict) -> None:
         progress_state["total"] = max(total, 1)
         progress_bar.progress(
             done / progress_state["total"],
-            text=f"AIDA dataset {done}/{total}...",
+            text=f"AIDA raw dataset {done}/{total}...",
         )
 
     try:
@@ -211,7 +214,11 @@ def _do_load(params: dict) -> None:
 
 
 def _source_label(status: LoadStatus) -> str:
-    return {"api": "SERENE API", "none": "No data"}.get(status.source, status.source)
+    return {
+        "api": "SERENE API",
+        "indices": "SERENE global indices only",
+        "none": "No data",
+    }.get(status.source, status.source)
 
 
 def _apply_selected_historical_range(selected_rows: list[int], windows: pd.DataFrame) -> None:
@@ -255,7 +262,7 @@ def _render_connection_panel() -> None:
         st.metric("Rows loaded", f"{len(st.session_state.data):,}")
     with c4:
         st.metric(
-            "AIDA datasets downloaded",
+            "AIDA raw datasets downloaded",
             int(status.metadata.get("aida_dataset_downloads", 0)),
         )
     with c5:
@@ -294,8 +301,9 @@ def _render_historical_windows() -> None:
 def _render_empty_state() -> None:
     st.info(
         "Click Load / Refresh data in the sidebar to fetch live SERENE API data. "
-        "Each AIDA output is downloaded once and sampled in memory; no local sample "
-        "data is loaded or stored by the app."
+        "Each raw AIDA state is downloaded once per output time and interpreted by "
+        "the official AIDA package; all requested map points are calculated locally. "
+        "No local sample dataset is used."
     )
     st.subheader("Risk forecast map")
     st.info(
