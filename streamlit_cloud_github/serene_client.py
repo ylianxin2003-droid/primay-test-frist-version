@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import time
 from io import StringIO
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
@@ -23,6 +25,42 @@ from config import (
 KP_AP_CACHE_TTL_SECONDS = int(os.getenv("SERENE_KP_AP_CACHE_TTL", "3600"))
 
 logger = logging.getLogger(__name__)
+
+
+def normalise_aida_request_time(value: str) -> pd.Timestamp:
+    """Round a requested UTC time to AIDA's nearest five-minute state.
+
+    This matches ``AIDAState.fromAPI`` in Benjamin Reid's MIT-licensed
+    interpreter: https://github.com/breid-phys/aida-ionosphere/blob/main/aida/aida.py
+    """
+    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(parsed):
+        raise ValueError(f"Invalid requested AIDA time: {value}")
+    rounded_epoch = np.round(parsed.timestamp() / 300.0) * 300.0
+    return pd.to_datetime(rounded_epoch, unit="s", utc=True)
+
+
+def _safe_response_detail(response: requests.Response) -> str:
+    """Extract a short non-HTML API error without including credentials."""
+    text = str(getattr(response, "text", "") or "").strip()
+    if not text or text.startswith("<"):
+        return ""
+    content_type = str((getattr(response, "headers", {}) or {}).get(
+        "Content-Type", ""
+    )).lower()
+    if "json" in content_type:
+        try:
+            body = json.loads(text)
+        except (TypeError, ValueError):
+            body = None
+        if isinstance(body, dict):
+            text = str(
+                body.get("detail")
+                or body.get("error")
+                or body.get("message")
+                or ""
+            ).strip()
+    return " ".join(text.split())[:240]
 
 # ── API Endpoints ───────────────────────────────────────────────────────────
 ENDPOINTS: dict[str, str] = {
@@ -237,9 +275,10 @@ class SereneClient:
                 "file_type": "raw",
             }
         else:
-            parsed = pd.to_datetime(requested_time, errors="coerce", utc=True)
-            if pd.isna(parsed):
-                return False, f"Invalid requested AIDA time: {requested_time}", None
+            try:
+                parsed = normalise_aida_request_time(requested_time)
+            except ValueError as exc:
+                return False, str(exc), None
             cache_time = parsed.isoformat()
             # Upstream ``downloadOutput`` sends ``np.datetime64.astype('str')``:
             # an ISO value without a timezone suffix. Preserve that exact contract.
@@ -270,9 +309,13 @@ class SereneClient:
         if response.status_code in {401, 403}:
             return False, "SERENE rejected the API token for AIDA raw output.", None
         if not response.ok:
+            detail = _safe_response_detail(response)
+            if self.token:
+                detail = detail.replace(self.token, "[redacted]")
+            suffix = f" {detail}" if detail else ""
             return (
                 False,
-                f"SERENE AIDA raw-output API returned status {response.status_code}.",
+                f"SERENE AIDA raw-output API returned status {response.status_code}.{suffix}",
                 None,
             )
 

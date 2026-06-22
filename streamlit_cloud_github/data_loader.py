@@ -10,7 +10,7 @@ import pandas as pd
 
 from aida_adapter import UPSTREAM_AIDA_VERSION, calculate_aida_grid
 from aida_grid import AidaGridError, estimate_target_points
-from serene_client import SereneClient
+from serene_client import SereneClient, normalise_aida_request_time
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,9 @@ def load_data(
     else:
         current_year = pd.Timestamp.now(tz="UTC").year
         for value in requested_times:
-            parsed = pd.to_datetime(value, errors="coerce", utc=True)
-            if pd.isna(parsed):
+            try:
+                parsed = normalise_aida_request_time(value)
+            except ValueError:
                 warnings.append(f"Invalid requested AIDA time: {value}")
                 continue
             latency = "final" if parsed.year < current_year else "ultra"

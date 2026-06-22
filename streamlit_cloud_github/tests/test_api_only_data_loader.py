@@ -108,6 +108,26 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertEqual(len(client.download_requests), 1)
         self.assertEqual(status.metadata["aida_dataset_downloads"], 1)
 
+    def test_times_rounded_to_same_five_minute_output_download_once(self):
+        import data_loader
+
+        client = FakeRawClient()
+        with (
+            patch.object(data_loader, "SereneClient", return_value=client),
+            patch.object(data_loader, "calculate_aida_grid", side_effect=_fake_calculation),
+        ):
+            _frame, status = data_loader.load_data(
+                start_time="2026-06-21T20:00:01Z",
+                end_time="2026-06-21T20:02:29Z",
+            )
+
+        self.assertEqual(len(client.download_requests), 1)
+        self.assertEqual(
+            client.download_requests[0],
+            ("2026-06-21T20:00:00+00:00", "ultra"),
+        )
+        self.assertEqual(status.metadata["aida_dataset_downloads"], 1)
+
     def test_archive_time_uses_final_product(self):
         import data_loader
 

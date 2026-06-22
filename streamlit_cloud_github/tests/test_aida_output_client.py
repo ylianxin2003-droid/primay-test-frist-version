@@ -15,12 +15,14 @@ def _response(
     content: bytes = HDF5_RESPONSE,
     content_type: str = "application/x-hdf5",
     status_code: int = 200,
+    text: str = "",
 ):
     return Mock(
         ok=200 <= status_code < 300,
         status_code=status_code,
         content=content,
         headers={"Content-Type": content_type},
+        text=text,
     )
 
 
@@ -58,6 +60,20 @@ class AidaRawOutputClientTest(unittest.TestCase):
             "file_type": "raw",
         })
 
+    def test_request_time_is_rounded_to_nearest_five_minutes_like_upstream(self):
+        self.client._session.request = Mock(return_value=_response())
+
+        ok, message, _payload = self.client.download_aida_raw_output(
+            requested_time="2025-04-11T12:00:01Z",
+            latency="ultra",
+        )
+
+        self.assertTrue(ok, message)
+        self.assertEqual(
+            self.client._session.request.call_args.kwargs["data"]["file_time"],
+            "2025-04-11T12:00:00",
+        )
+
     def test_latest_raw_request_is_cached(self):
         response = _response()
         self.client._session.request = Mock(return_value=response)
@@ -94,6 +110,24 @@ class AidaRawOutputClientTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIsNone(payload)
         self.assertIn("rejected", message)
+        self.assertNotIn("test-token", message)
+
+    def test_bad_request_includes_safe_server_detail(self):
+        self.client._session.request = Mock(return_value=_response(
+            status_code=400,
+            content=b'{"detail":"No matching AIDA output"}',
+            content_type="application/json",
+            text='{"detail":"No matching AIDA output"}',
+        ))
+
+        ok, message, payload = self.client.download_aida_raw_output(
+            "2024-03-24T15:00:00Z",
+            "final",
+        )
+
+        self.assertFalse(ok)
+        self.assertIsNone(payload)
+        self.assertIn("No matching AIDA output", message)
         self.assertNotIn("test-token", message)
 
 
