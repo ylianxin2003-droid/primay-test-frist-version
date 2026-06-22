@@ -24,41 +24,6 @@ def historical_risk_windows() -> pd.DataFrame:
     """Recent high-risk geomagnetic storm windows from SERENE Kp/ap data."""
     return pd.DataFrame([
         {
-            "Time UTC": "2017-09-08 00:00 to 03:00",
-            "Kp": "8.0",
-            "ap": "207",
-            "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2017-09-08T00:00:00 to 2017-09-08T03:00:00",
-        },
-        {
-            "Time UTC": "2017-09-08 12:00 to 15:00",
-            "Kp": "8.3",
-            "ap": "236",
-            "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2017-09-08T12:00:00 to 2017-09-08T15:00:00",
-        },
-        {
-            "Time UTC": "2023-03-24 03:00 to 06:00",
-            "Kp": "8.0",
-            "ap": "207",
-            "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2023-03-24T03:00:00 to 2023-03-24T06:00:00",
-        },
-        {
-            "Time UTC": "2023-04-23 18:00 to 21:00",
-            "Kp": "8.3",
-            "ap": "236",
-            "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2023-04-23T18:00:00 to 2023-04-23T21:00:00",
-        },
-        {
-            "Time UTC": "2023-04-24 03:00 to 06:00",
-            "Kp": "8.0",
-            "ap": "207",
-            "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2023-04-24T03:00:00 to 2023-04-24T06:00:00",
-        },
-        {
             "Time UTC": "2024-03-24 15:00 to 18:00",
             "Kp": "8.3",
             "ap": "236",

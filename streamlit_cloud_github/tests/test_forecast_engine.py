@@ -38,7 +38,7 @@ class ForecastEngineTest(unittest.TestCase):
         self.assertEqual(mapped.loc[0, "risk_level"], "Severe")
         self.assertGreaterEqual(float(mapped.loc[0, "risk_probability"]), 0.8)
 
-    def test_kp_global_baseline_raises_mappable_cells(self):
+    def test_kp_does_not_raise_mappable_cells(self):
         from forecast_engine import aggregate_forecast_for_map, generate_risk_forecast
 
         df = pd.DataFrame([
@@ -61,8 +61,27 @@ class ForecastEngineTest(unittest.TestCase):
         forecast = generate_risk_forecast(df)
         mapped = aggregate_forecast_for_map(forecast, horizon="Now")
 
-        self.assertEqual(mapped.loc[0, "risk_level"], "Severe")
-        self.assertIn("global storm baseline", mapped.loc[0, "driver"])
+        self.assertEqual(mapped.loc[0, "risk_level"], "Normal")
+        self.assertEqual(mapped.loc[0, "driver"], "TEC persistence")
+
+    def test_single_timestamp_is_labelled_as_low_confidence_persistence(self):
+        from forecast_engine import generate_risk_forecast
+
+        df = pd.DataFrame([
+            {
+                "time": pd.Timestamp("2026-06-16T10:00:00Z"),
+                "lat": 50.0,
+                "lon": 1.0,
+                "variable": "TEC",
+                "value": 10.0,
+            },
+        ])
+
+        forecast = generate_risk_forecast(df)
+
+        self.assertTrue((forecast["driver"] == "TEC persistence").all())
+        self.assertLessEqual(float(forecast["confidence"].max()), 0.45)
+        self.assertIn("persistence", forecast.iloc[0]["explanation"].lower())
 
     def test_risk_forecast_map_draws_points(self):
         from forecast_engine import generate_risk_forecast

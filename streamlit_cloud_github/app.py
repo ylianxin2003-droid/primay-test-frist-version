@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import streamlit as st
 
+from aida_grid import estimate_target_points
 from alert_engine import DISCLAIMER, generate_alerts, generate_overall_risk
 from app_utils import (
     build_data_preview,
@@ -21,7 +22,7 @@ from config import SERENE_API_TOKEN, reload_config, validate_config
 from data_loader import LoadStatus, load_data
 from forecast_engine import FORECAST_HORIZONS, forecast_summary, generate_risk_forecast
 from forecast_visualisation import create_risk_forecast_map
-from serene_client import MAX_GRID_POINTS, SereneClient
+from serene_client import SereneClient
 from visualisation import (
     create_alert_summary,
     create_alert_timeline,
@@ -81,7 +82,8 @@ def _render_sidebar() -> dict:
                 st.warning(msg)
 
     st.sidebar.info("Data source: SERENE API")
-    params["model"] = st.sidebar.selectbox("Model", ["AIDA", "TOMIRIS"])
+    params["model"] = "AIDA"
+    st.sidebar.caption("Verified model: AIDA")
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
     default_start = now - timedelta(hours=6)
@@ -113,7 +115,7 @@ def _render_sidebar() -> dict:
     params["end_time"] = combine_date_time_iso(end_date, end_clock)
     st.sidebar.caption(f"ISO range: {params['start_time']} to {params['end_time']}")
 
-    avail_vars = ["vTEC", "TEC", "MUF3000", "foF2", "MUF3000_depression", "foF2_depression"]
+    avail_vars = ["TEC", "foF2", "MUF3000F2", "NmF2", "hmF2"]
     selected_vars = st.sidebar.multiselect(
         "Variable selection",
         options=avail_vars,
@@ -128,15 +130,16 @@ def _render_sidebar() -> dict:
         lon_min = st.number_input("Lon min", value=-15.0, min_value=-180.0, max_value=180.0)
         lon_max = st.number_input("Lon max", value=15.0, min_value=-180.0, max_value=180.0)
         params["grid_step"] = st.slider("Grid step (degrees)", 2.0, 30.0, 5.0, 1.0)
-        est_n, _, _ = SereneClient.estimate_grid_points(
-            lat_min,
-            lat_max,
-            lon_min,
-            lon_max,
-            params["grid_step"],
+        local_points = estimate_target_points(
+            {
+                "lat_min": lat_min,
+                "lat_max": lat_max,
+                "lon_min": lon_min,
+                "lon_max": lon_max,
+            },
             params["grid_step"],
         )
-        st.caption(f"About {est_n} API call(s), capped at {MAX_GRID_POINTS}.")
+        st.caption(f"Local map points: {local_points:,}. AIDA is downloaded once per output time.")
 
     params["region"] = {
         "lat_min": lat_min,
@@ -146,7 +149,7 @@ def _render_sidebar() -> dict:
     }
 
     st.sidebar.markdown("---")
-    if st.sidebar.button("Test SERENE API connection", use_container_width=True):
+    if st.sidebar.button("Test SERENE API connection", width="stretch"):
         with st.spinner("Testing connection..."):
             ok, msg = SereneClient().test_connection()
             st.session_state.api_connected = ok
@@ -156,7 +159,7 @@ def _render_sidebar() -> dict:
         else:
             st.sidebar.warning(msg)
 
-    if st.sidebar.button("Load / Refresh data", type="primary", use_container_width=True):
+    if st.sidebar.button("Load / Refresh data", type="primary", width="stretch"):
         _do_load(params)
 
     st.sidebar.caption("Prototype research system, not for operational aviation decisions.")
@@ -172,7 +175,7 @@ def _do_load(params: dict) -> None:
         progress_state["total"] = max(total, 1)
         progress_bar.progress(
             done / progress_state["total"],
-            text=f"SERENE API: point {done}/{total}...",
+            text=f"AIDA dataset {done}/{total}...",
         )
 
     try:
@@ -235,7 +238,7 @@ def _apply_pending_time_range() -> None:
 
 def _render_connection_panel() -> None:
     st.subheader("SERENE API and data status")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4, c5 = st.columns(5)
 
     with c1:
         if st.session_state.api_connected is True:
@@ -250,6 +253,16 @@ def _render_connection_panel() -> None:
         st.metric("Current data source", _source_label(status))
     with c3:
         st.metric("Rows loaded", f"{len(st.session_state.data):,}")
+    with c4:
+        st.metric(
+            "AIDA datasets downloaded",
+            int(status.metadata.get("aida_dataset_downloads", 0)),
+        )
+    with c5:
+        st.metric(
+            "Local map points",
+            f"{int(status.metadata.get('local_map_points', 0)):,}",
+        )
 
     if status.message:
         if status.ok:
@@ -265,7 +278,7 @@ def _render_historical_windows() -> None:
     windows = historical_risk_windows()
     selection = st.dataframe(
         windows,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         height=260,
         selection_mode="single-row",
@@ -281,7 +294,8 @@ def _render_historical_windows() -> None:
 def _render_empty_state() -> None:
     st.info(
         "Click Load / Refresh data in the sidebar to fetch live SERENE API data. "
-        "No local sample data is loaded or stored by the app."
+        "Each AIDA output is downloaded once and sampled in memory; no local sample "
+        "data is loaded or stored by the app."
     )
     st.subheader("Risk forecast map")
     st.info(
@@ -317,9 +331,9 @@ def _render_alerts(alerts: pd.DataFrame) -> None:
 
     col_a, col_b = st.columns(2)
     with col_a:
-        st.plotly_chart(create_alert_summary(alerts), use_container_width=True)
+        st.plotly_chart(create_alert_summary(alerts), width="stretch")
     with col_b:
-        st.plotly_chart(create_alert_timeline(alerts), use_container_width=True)
+        st.plotly_chart(create_alert_timeline(alerts), width="stretch")
 
     show_cols = [
         c
@@ -334,7 +348,7 @@ def _render_alerts(alerts: pd.DataFrame) -> None:
         )
         if c in alerts.columns
     ]
-    st.dataframe(alerts[show_cols], use_container_width=True, height=220)
+    st.dataframe(alerts[show_cols], width="stretch", height=220)
 
 
 def _render_forecast() -> None:
@@ -343,6 +357,10 @@ def _render_forecast() -> None:
     forecast_level, forecast_message = forecast_summary(forecast)
     st.metric("Forecast highest risk", forecast_level)
     st.caption(forecast_message)
+    st.caption(
+        "Prototype note: absolute TEC is an illustrative proxy. TEC gradients, "
+        "anomalies, variability, and scintillation are more directly related to GNSS degradation."
+    )
 
     if forecast.empty:
         st.info("No mappable forecast risk data is available for the current API response.")
@@ -352,7 +370,7 @@ def _render_forecast() -> None:
     selected_horizon = st.radio("Forecast horizon", horizon_options, horizontal=True)
     st.plotly_chart(
         create_risk_forecast_map(forecast, horizon=selected_horizon),
-        use_container_width=True,
+        width="stretch",
     )
 
     forecast_cols = [
@@ -366,12 +384,12 @@ def _render_forecast() -> None:
         "predicted_value",
         "explanation",
     ]
-    st.dataframe(forecast[forecast_cols].head(100), use_container_width=True, height=260)
+    st.dataframe(forecast[forecast_cols].head(100), width="stretch", height=260)
 
 
 def _render_data_views(df: pd.DataFrame, alerts: pd.DataFrame) -> None:
     st.subheader("Data preview")
-    st.dataframe(build_data_preview(df, alerts).head(100), use_container_width=True)
+    st.dataframe(build_data_preview(df, alerts).head(100), width="stretch")
 
     var_options = sorted(df["variable"].dropna().unique()) if "variable" in df.columns else []
     map_var_options = mappable_variable_options(df)
@@ -386,10 +404,10 @@ def _render_data_views(df: pd.DataFrame, alerts: pd.DataFrame) -> None:
     col_ts, col_map = st.columns(2)
     with col_ts:
         st.subheader("Time series")
-        st.plotly_chart(create_time_series_plot(df, variable=selected_time_var), use_container_width=True)
+        st.plotly_chart(create_time_series_plot(df, variable=selected_time_var), width="stretch")
     with col_map:
         st.subheader("Raw variable map")
-        st.plotly_chart(create_map_plot(df, variable=selected_map_var), use_container_width=True)
+        st.plotly_chart(create_map_plot(df, variable=selected_map_var), width="stretch")
 
     with st.expander("Raw load metadata"):
         st.json(
@@ -408,6 +426,30 @@ def _render_data_views(df: pd.DataFrame, alerts: pd.DataFrame) -> None:
         )
 
 
+def _render_global_indices(df: pd.DataFrame) -> None:
+    """Show Kp/ap as planetary context without creating geographic map cells."""
+    if "variable" not in df.columns:
+        return
+    global_indices = df[df["variable"].isin(["Kp", "ap"])].copy()
+    if global_indices.empty:
+        return
+
+    st.subheader("Global geomagnetic context")
+    st.caption(
+        "Kp and ap are planetary indices. They provide global storm context and are "
+        "not assigned to regional map cells."
+    )
+    columns = st.columns(2)
+    for column, variable in zip(columns, ("Kp", "ap")):
+        values = pd.to_numeric(
+            global_indices.loc[global_indices["variable"] == variable, "value"],
+            errors="coerce",
+        ).dropna()
+        with column:
+            st.metric(f"Latest {variable}", f"{values.iloc[-1]:.1f}" if not values.empty else "N/A")
+    st.plotly_chart(create_time_series_plot(global_indices), width="stretch")
+
+
 def _render_main() -> None:
     st.title("Aviation Space Weather Dashboard")
     st.caption("SERENE API-only monitoring with weather-style risk forecasting.")
@@ -423,6 +465,8 @@ def _render_main() -> None:
 
     df = st.session_state.data
     alerts = st.session_state.alerts
+    _render_global_indices(df)
+    st.markdown("---")
     _render_alerts(alerts)
     st.markdown("---")
     _render_forecast()

@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from alert_engine import THRESHOLDS, _classify_variable_risk, _find_threshold
+from alert_engine import _classify_variable_risk, _find_threshold
 
 
 FORECAST_HORIZONS: tuple[tuple[str, int], ...] = (
@@ -47,15 +47,11 @@ def generate_risk_forecast(df: pd.DataFrame) -> pd.DataFrame:
     else:
         work["time"] = pd.NaT
 
-    global_baseline = _global_geomagnetic_baseline(work)
     point_forecasts = _point_variable_forecasts(work)
     if not point_forecasts:
         return pd.DataFrame()
 
     forecast = pd.DataFrame(point_forecasts)
-    if global_baseline:
-        forecast = _apply_global_baseline(forecast, global_baseline)
-
     forecast = forecast.sort_values(
         ["horizon_hours", "risk_score", "risk_probability"],
         ascending=[True, False, False],
@@ -112,6 +108,7 @@ def _point_variable_forecasts(work: pd.DataFrame) -> list[dict[str, Any]]:
     spatial = work.copy()
     spatial["lat"] = pd.to_numeric(spatial["lat"], errors="coerce")
     spatial["lon"] = pd.to_numeric(spatial["lon"], errors="coerce")
+    spatial = spatial[~spatial["variable"].isin(["Kp", "ap"])]
     spatial = spatial.dropna(subset=["lat", "lon", "value"])
     if spatial.empty:
         return []
@@ -128,6 +125,9 @@ def _point_variable_forecasts(work: pd.DataFrame) -> list[dict[str, Any]]:
         latest_value = float(latest["value"])
         slope_per_hour = _estimate_slope_per_hour(grp)
         confidence_base = _confidence_from_samples(grp)
+        has_trend = grp.dropna(subset=["time", "value"])["time"].nunique() >= 2
+        if not has_trend:
+            confidence_base = min(confidence_base, 0.45)
 
         for horizon, hours in FORECAST_HORIZONS:
             predicted = latest_value + slope_per_hour * hours
@@ -144,7 +144,7 @@ def _point_variable_forecasts(work: pd.DataFrame) -> list[dict[str, Any]]:
                 "lat": float(lat),
                 "lon": float(lon),
                 "variable": str(variable),
-                "driver": str(variable),
+                "driver": str(variable) if has_trend else f"{variable} persistence",
                 "observed_value": latest_value,
                 "predicted_value": float(predicted),
                 "risk_level": risk_level,
@@ -152,56 +152,12 @@ def _point_variable_forecasts(work: pd.DataFrame) -> list[dict[str, Any]]:
                 "risk_probability": round(float(probability), 3),
                 "confidence": round(float(confidence), 3),
                 "explanation": _explain_forecast(
-                    str(variable), predicted, risk_level, probability, confidence
+                    str(variable), predicted, risk_level, probability, confidence,
+                    persistence=not has_trend,
                 ),
             })
 
     return rows
-
-
-def _global_geomagnetic_baseline(work: pd.DataFrame) -> dict[str, Any] | None:
-    global_rows = work[work["variable"].isin(["Kp", "ap"])].dropna(subset=["value"])
-    if global_rows.empty:
-        return None
-
-    candidates: list[dict[str, Any]] = []
-    for variable, grp in global_rows.groupby("variable", sort=False):
-        threshold = THRESHOLDS.get(str(variable))
-        if threshold is None:
-            continue
-        latest = grp.sort_values("time").iloc[-1]
-        value = float(latest["value"])
-        score = _risk_score(str(variable), value, threshold["levels"])
-        candidates.append({
-            "variable": str(variable),
-            "value": value,
-            "risk_score": score,
-            "risk_level": _normalise_map_risk(
-                _classify_variable_risk(str(variable), value, threshold["levels"])
-            ),
-        })
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda row: row["risk_score"])
-
-
-def _apply_global_baseline(forecast: pd.DataFrame, baseline: dict[str, Any]) -> pd.DataFrame:
-    out = forecast.copy()
-    baseline_score = float(baseline["risk_score"])
-    stronger = baseline_score > out["risk_score"]
-    out.loc[stronger, "risk_score"] = baseline_score
-    out.loc[stronger, "risk_level"] = baseline["risk_level"]
-    out.loc[stronger, "driver"] = f"{baseline['variable']} global storm baseline"
-    out.loc[stronger, "risk_probability"] = np.maximum(
-        out.loc[stronger, "risk_probability"],
-        _risk_probability(baseline_score, 0, 0.0, THRESHOLDS[str(baseline["variable"])]["levels"]),
-    )
-    out.loc[stronger, "explanation"] = (
-        f"Global {baseline['variable']}={baseline['value']:.2f} raises the regional "
-        f"storm baseline to {baseline['risk_level']}."
-    )
-    return out
 
 
 def _estimate_slope_per_hour(grp: pd.DataFrame) -> float:
@@ -287,9 +243,15 @@ def _explain_forecast(
     risk_level: str,
     probability: float,
     confidence: float,
+    persistence: bool = False,
 ) -> str:
+    method = (
+        "Persistence scenario because only one valid AIDA output time was available. "
+        if persistence
+        else "Short-term linear trend scenario. "
+    )
     return (
-        f"{variable} forecast value {predicted:.2f} gives {risk_level} risk "
+        f"{method}{variable} forecast value {predicted:.2f} gives {risk_level} risk "
         f"with {probability * 100:.1f}% probability "
         f"and {confidence * 100:.1f}% confidence."
     )

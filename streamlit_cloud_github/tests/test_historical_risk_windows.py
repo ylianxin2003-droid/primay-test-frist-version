@@ -9,6 +9,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 class HistoricalRiskWindowsTest(unittest.TestCase):
+    def test_historical_events_start_in_2024_or_later(self):
+        from app_utils import historical_risk_windows
+
+        windows = historical_risk_windows()
+        starts = pd.to_datetime(
+            windows["Select range"].str.split(" to ").str[0],
+            utc=True,
+        )
+
+        self.assertTrue((starts >= pd.Timestamp("2024-01-01", tz="UTC")).all())
+
     def test_historical_table_contains_recent_serene_events(self):
         from app_utils import historical_risk_windows
 

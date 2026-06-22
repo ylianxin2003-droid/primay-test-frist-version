@@ -1,130 +1,87 @@
 # Aviation Space Weather Risk Forecast Dashboard
 
-Streamlit dashboard for a postgraduate dissertation prototype using live
-SERENE API data and AIDA/TOMIRIS model outputs.
+Streamlit dissertation prototype using authenticated SERENE AIDA ionospheric
+model outputs. It monitors spatial ionospheric parameters and creates
+transparent, rule-based GNSS/HF risk indications.
 
-The app is designed as an API-only aviation space-weather monitoring and
-short-horizon risk forecasting system. It does not load or store local sample
-datasets. Each dashboard refresh requests data from SERENE, converts the API
-response into a standard long-form table, generates prototype advisories, and
-builds weather-style risk maps.
+> Academic prototype only. It is not an official ICAO advisory system and must
+> not be used for operational aviation decisions.
 
-> Academic prototype only. These advisories are not official ICAO warnings and
-> must not be used for operational aviation decision-making.
-
-## Core Features
-
-- API-only data access through SERENE `/api/calc/` and online Kp/ap resources.
-- Configurable latitude/longitude bounding box and grid step for dense map
-  sampling.
-- ICAO-style prototype risk advisories for GNSS, HF communication, ionospheric
-  disturbance, and geomagnetic storm risk.
-- Weather-style risk forecast horizons: `Now`, `+1h`, `+3h`, and `+6h`.
-- Colour-coded risk forecast map:
-  - green = Normal
-  - yellow = Watch
-  - orange = Warning
-  - red = Severe
-- Forecast table with probability, confidence, driver variable, predicted
-  value, and explanation.
-- No hardcoded API token. Secrets are read from Streamlit Cloud Secrets, local
-  `.env`, or environment variables.
-
-## Research Architecture
+## Data flow
 
 ```text
-SERENE API
-  -> grid sampling over selected region
-  -> standardised DataFrame: time, lat, lon, variable, value, model
-  -> alert_engine.py: threshold-based prototype advisories
-  -> forecast_engine.py: short-horizon risk score, probability, confidence
-  -> visualisation.py: time series, raw variable maps, risk forecast map
-  -> app.py: Streamlit dashboard
+Streamlit Cloud Secrets
+  -> authenticated SERENE AIDA output catalogue
+  -> one param_2d HDF5 download per selected output time
+  -> exact local bounding-box/grid sampling in memory
+  -> standard DataFrame: time, lat, lon, variable, value, model
+  -> threshold alerts + short-term trend/persistence forecast
+  -> maps, time series, alert table and global Kp/ap context
 ```
 
-The forecast layer is intentionally transparent for dissertation assessment.
-It uses threshold-informed scoring plus short-term trend extrapolation when
-multiple timestamps are available. If only a single API sample is available,
-it falls back to persistence-style nowcasting. Kp/ap values are treated as a
-global storm baseline and can raise the regional map risk.
+Changing the map extent or grid spacing does not create extra AIDA downloads.
+The full AIDA product is loaded once for each distinct output time, then any
+number of requested map points is calculated locally. Start and end times that
+select the same output are deduplicated.
 
-## Repository Layout
+## Supported data
+
+- Spatial AIDA parameters: `TEC`, `foF2`, `MUF3000F2`, `NmF2`, `hmF2`.
+- Global indices: `Kp` and `ap`, shown as context and time series only.
+- Historical event shortcuts begin in 2024, matching the available archive.
+
+Kp is a global three-hour index, so it is deliberately excluded from regional
+risk maps. Regional maps use only spatial AIDA variables. High absolute TEC is
+also not, by itself, proof of GNSS risk; gradients, anomalies, variability and
+scintillation would require additional data and validation.
+
+## Forecast method
+
+The current forecast is a transparent research prototype, not a trained AI
+model. With multiple samples it extrapolates the recent local trend to `Now`,
+`+1h`, `+3h` and `+6h`, then applies documented thresholds. With one sample it
+uses low-confidence persistence. Displayed probability and confidence are
+heuristic indicators and are not statistically calibrated probabilities.
+
+## Repository layout
 
 ```text
-app.py                 Streamlit entry point
-config.py              Secrets and environment configuration
-serene_client.py       SERENE API client and response parser
-data_loader.py         API-only data loading pipeline
-alert_engine.py        Prototype risk advisory rules
-forecast_engine.py     Short-horizon risk forecasting
-visualisation.py       Plotly charts and maps
-requirements.txt       Streamlit Cloud dependencies
-tests/                 Unit tests for loader, maps, alerts, forecast
+app.py                       Streamlit page and controls
+config.py                    Secrets/environment configuration
+serene_client.py             Authenticated catalogue/download client
+aida_grid.py                 HDF5 validation and exact local interpolation
+data_loader.py               Download deduplication and data assembly
+alert_engine.py              Rule-based prototype alerts
+forecast_engine.py           Trend/persistence risk forecast
+visualisation.py             Parameter charts and maps
+forecast_visualisation.py    Regional forecast map
+tests/                        Automated regression tests
 ```
 
-## Streamlit Cloud Deployment
+## Streamlit Cloud deployment
 
-1. Open [https://share.streamlit.io](https://share.streamlit.io).
-2. Create a new app from this GitHub repository.
-3. Use `streamlit_cloud_github/app.py` as the main file path if deploying from
-   the repository root.
-4. Add secrets in the Streamlit Cloud app settings:
+Add these values under **App settings -> Secrets**:
 
 ```toml
-SERENE_API_BASE_URL = "https://spaceweather.bham.ac.uk"
+SERENE_API_BASE_URL = "https://serene.bham.ac.uk"
 SERENE_API_TOKEN = "your-api-token-here"
 SERENE_API_TIMEOUT = "30"
 SERENE_AUTH_SCHEME = "Token"
 ```
 
-5. Reboot the app after saving secrets.
+The client detects a redirect to the website login form and reports it clearly:
+a Chrome login session cannot authenticate Streamlit Cloud, so the supplied API
+token must have permission to read the AIDA output catalogue and HDF5 download.
 
-## Local Development
+## Local development
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env with your SERENE token
 python -m streamlit run app.py
-```
-
-Run tests:
-
-```bash
 python -m unittest discover -s tests -v
 ```
 
-## Streamlit Cloud: Good Final Demo or Not?
-
-Streamlit Cloud is a good final dissertation demo platform because it is simple
-to deploy, integrates directly with GitHub, and supports secure secrets for the
-SERENE API token.
-
-Its limitations are important for the written report:
-
-- Apps can sleep after inactivity, so open the demo before the presentation.
-- Free/shared resources are limited, so very dense API grids may become slow.
-- Long synchronous API batches can hit timeouts or make the UI feel frozen.
-- It is less suitable for scheduled background jobs, heavy caching, or many
-  simultaneous users.
-
-Recommended dissertation setup:
-
-- Use Streamlit Cloud for the assessed interactive demo.
-- Keep a local backup run and a short screen recording for presentation safety.
-- Use conservative default sampling, for example 50 API calls per refresh.
-- Add a server backend only if you need high-density grid sampling, async batch
-  requests, scheduled refreshes, or multi-user reliability.
-
-## When a Server Backend Helps
-
-A small backend service is useful when the project moves beyond a demo:
-
-- async SERENE API batch requests over hundreds of grid points;
-- rate limiting and retry queues;
-- short TTL response caching to avoid repeated identical API calls;
-- precomputed forecast tiles for faster map rendering;
-- monitoring and logs for dissertation evaluation.
-
-This does not require storing local research datasets. The backend can keep
-only temporary API response cache entries with a short TTL.
+No local scientific dataset is used as a silent fallback. A failed catalogue or
+download request is shown as an API error so that a demo never presents sample
+data as live SERENE data.
