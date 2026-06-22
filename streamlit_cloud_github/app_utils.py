@@ -14,6 +14,8 @@ DISCLAIMER = (
     "aviation decision-making."
 )
 
+AIDA_ARCHIVE_START = date(2024, 9, 28)
+
 
 def combine_date_time_iso(date_value: date, time_value: time) -> str:
     """Combine separate Streamlit date/time values into an ISO 8601 string."""
@@ -30,27 +32,6 @@ def default_time_range(reference_time: datetime | None = None) -> tuple[datetime
 def historical_risk_windows() -> pd.DataFrame:
     """Recent high-risk geomagnetic storm windows from SERENE Kp/ap data."""
     return pd.DataFrame([
-        {
-            "Time UTC": "2024-03-24 15:00 to 18:00",
-            "Kp": "8.3",
-            "ap": "236",
-            "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2024-03-24T15:00:00 to 2024-03-24T18:00:00",
-        },
-        {
-            "Time UTC": "2024-05-10 18:00 to 2024-05-11 18:00",
-            "Kp": "9.0",
-            "ap": "400",
-            "Risk": "G5 Extreme geomagnetic storm",
-            "Select range": "2024-05-10T18:00:00 to 2024-05-11T18:00:00",
-        },
-        {
-            "Time UTC": "2024-08-12 12:00 to 15:00",
-            "Kp": "8.0",
-            "ap": "207",
-            "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2024-08-12T12:00:00 to 2024-08-12T15:00:00",
-        },
         {
             "Time UTC": "2024-10-10 18:00 to 2024-10-11 03:00",
             "Kp": "8.7",

@@ -11,6 +11,7 @@ import streamlit as st
 from aida_grid import estimate_target_points
 from alert_engine import DISCLAIMER, generate_alerts, generate_overall_risk
 from app_utils import (
+    AIDA_ARCHIVE_START,
     build_data_preview,
     combine_date_time_iso,
     default_time_range,
@@ -87,12 +88,22 @@ def _render_sidebar() -> dict:
     st.sidebar.caption("Verified model: AIDA")
 
     default_start, default_end = default_time_range()
+    for key in ("start_date", "end_date"):
+        selected_date = st.session_state.get(key)
+        if selected_date is not None and selected_date < AIDA_ARCHIVE_START:
+            st.session_state[key] = AIDA_ARCHIVE_START
     st.sidebar.markdown("#### Time range")
     st.sidebar.caption("Default end time is 15 minutes behind UTC to allow AIDA publication.")
+    st.sidebar.caption("AIDA regional archive begins at 2024-09-28 00:00 UTC.")
 
     start_date_col, start_time_col = st.sidebar.columns(2)
     with start_date_col:
-        start_date = st.date_input("Start date", value=default_start.date(), key="start_date")
+        start_date = st.date_input(
+            "Start date",
+            value=default_start.date(),
+            min_value=AIDA_ARCHIVE_START,
+            key="start_date",
+        )
     with start_time_col:
         start_clock = st.time_input(
             "Start time",
@@ -103,7 +114,12 @@ def _render_sidebar() -> dict:
 
     end_date_col, end_time_col = st.sidebar.columns(2)
     with end_date_col:
-        end_date = st.date_input("End date", value=default_end.date(), key="end_date")
+        end_date = st.date_input(
+            "End date",
+            value=default_end.date(),
+            min_value=AIDA_ARCHIVE_START,
+            key="end_date",
+        )
     with end_time_col:
         end_clock = st.time_input(
             "End time",

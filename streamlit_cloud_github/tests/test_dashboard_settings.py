@@ -88,6 +88,11 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertEqual(end, now.replace(microsecond=0) - timedelta(minutes=15))
         self.assertEqual(start, end - timedelta(hours=6))
 
+    def test_aida_date_inputs_use_archive_minimum(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertEqual(app_source.count("min_value=AIDA_ARCHIVE_START"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
