@@ -53,7 +53,7 @@ class AidaRawOutputClientTest(unittest.TestCase):
         )
         self.assertEqual(kwargs["headers"]["Authorization"], "Token test-token")
         self.assertEqual(kwargs["data"], {
-            "file_time": "2025-01-01T13:55:00+00:00",
+            "file_time": "2025-01-01T13:55:00",
             "product": "rapid",
             "file_type": "raw",
         })

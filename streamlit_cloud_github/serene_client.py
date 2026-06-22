@@ -241,8 +241,11 @@ class SereneClient:
             if pd.isna(parsed):
                 return False, f"Invalid requested AIDA time: {requested_time}", None
             cache_time = parsed.isoformat()
+            # Upstream ``downloadOutput`` sends ``np.datetime64.astype('str')``:
+            # an ISO value without a timezone suffix. Preserve that exact contract.
+            upstream_file_time = parsed.tz_convert("UTC").tz_localize(None).isoformat()
             request_data = {
-                "file_time": cache_time,
+                "file_time": upstream_file_time,
                 "product": latency,
                 "file_type": "raw",
             }
