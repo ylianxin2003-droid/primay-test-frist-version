@@ -5,14 +5,11 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass
 from io import StringIO
 from typing import Any
-from urllib.parse import urljoin
 
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -28,9 +25,8 @@ KP_AP_CACHE_TTL_SECONDS = int(os.getenv("SERENE_KP_AP_CACHE_TTL", "3600"))
 logger = logging.getLogger(__name__)
 
 # ── API Endpoints ───────────────────────────────────────────────────────────
-# Official (2026): POST /api/calc/  — see module docstring for curl example.
-# ★ Add future endpoints here when SERENE publishes expanded API docs.
 ENDPOINTS: dict[str, str] = {
+    "aida_raw_output": "/api/download-output/",
     "calc": "/api/calc/",
     "kp_ap": "/resources/download/Indices__Kp_ap.csv/",
     # Placeholders (not yet documented for Birmingham deployment):
@@ -49,17 +45,6 @@ class SereneAPIError(Exception):
         self.status_code = status_code
 
 
-@dataclass(frozen=True)
-class AidaOutput:
-    """Metadata required to retrieve one AIDA parameter product."""
-
-    output_id: str
-    timestamp: pd.Timestamp
-    cadence: str
-    kind: str
-    download_path: str
-
-
 class SereneClient:
     """HTTP client for the SERENE API.
 
@@ -76,7 +61,7 @@ class SereneClient:
     """
 
     _kp_ap_csv_cache: tuple[float, str] | None = None
-    _aida_download_cache: dict[str, bytes] = {}
+    _aida_raw_cache: dict[tuple[str, str], bytes] = {}
 
     def __init__(
         self,
@@ -214,12 +199,11 @@ class SereneClient:
         if not self.token:
             return False, "SERENE_API_TOKEN is not configured."
 
-        ok, msg, outputs = self.fetch_aida_catalog("ultra", "assimilation")
+        ok, msg, _payload = self.download_aida_raw_output(None, "ultra")
         if ok:
             return (
                 True,
-                f"Connected to SERENE AIDA output API at {self.base_url} "
-                f"({len(outputs)} output(s) available).",
+                f"Connected to SERENE AIDA raw-output API at {self.base_url}.",
             )
 
         if "401" in msg or "403" in msg:
@@ -227,144 +211,80 @@ class SereneClient:
 
         return False, msg
 
-    def fetch_aida_catalog(
+    def download_aida_raw_output(
         self,
-        cadence: str,
-        kind: str = "assimilation",
-    ) -> tuple[bool, str, list[AidaOutput]]:
-        """Read an authenticated SERENE output page and extract 2D products."""
-        if cadence not in {"ultra", "rapid", "final"}:
-            return False, f"Unsupported AIDA cadence: {cadence}", []
-        if kind not in {"assimilation", "forecast"}:
-            return False, f"Unsupported AIDA output kind: {kind}", []
-        if not self.base_url:
-            return False, "SERENE_API_BASE_URL is not configured.", []
-        if not self.token:
-            return False, "SERENE_API_TOKEN is not configured.", []
-
-        endpoint = f"/output/aida/{cadence}/{kind}/"
-        ok, message, response = self._request_response("GET", endpoint)
-        if not ok or response is None:
-            return False, message, []
-
-        final_url = str(getattr(response, "url", ""))
-        text = str(getattr(response, "text", ""))
-        if "/accounts/login/" in final_url or 'id="login-form"' in text:
-            return (
-                False,
-                "SERENE output catalog rejected Token authentication and returned the login page.",
-                [],
-            )
-
-        outputs = self.parse_aida_catalog_html(text, cadence=cadence, kind=kind)
-        if not outputs:
-            return False, "SERENE AIDA catalog contained no downloadable 2D products.", []
-        return True, f"Found {len(outputs)} AIDA {cadence} {kind} output(s).", outputs
-
-    @staticmethod
-    def parse_aida_catalog_html(
-        html: str,
-        cadence: str,
-        kind: str,
-    ) -> list[AidaOutput]:
-        """Parse output IDs, UTC timestamps, and parameter download paths."""
-        soup = BeautifulSoup(html, "html.parser")
-        outputs: list[AidaOutput] = []
-        seen: set[str] = set()
-        for anchor in soup.select('a[href*="/param_2d/download/"]'):
-            path = str(anchor.get("href", "")).strip()
-            parts = [part for part in path.split("/") if part]
-            try:
-                marker = parts.index("aida")
-                parsed_cadence = parts[marker + 1]
-                parsed_kind = parts[marker + 2]
-                output_id = parts[marker + 3]
-            except (ValueError, IndexError):
-                continue
-            if not output_id.isdigit() or path in seen:
-                continue
-
-            row = anchor.find_parent("tr")
-            timestamp: pd.Timestamp | None = None
-            if row is not None:
-                for cell in row.find_all(["td", "th"]):
-                    candidate = cell.get_text(" ", strip=True)
-                    if "-" not in candidate or ":" not in candidate:
-                        continue
-                    parsed = pd.to_datetime(candidate, errors="coerce", utc=True)
-                    if not pd.isna(parsed):
-                        timestamp = parsed
-                        break
-            if timestamp is None:
-                continue
-            outputs.append(AidaOutput(
-                output_id=output_id,
-                timestamp=timestamp,
-                cadence=parsed_cadence or cadence,
-                kind=parsed_kind or kind,
-                download_path=path,
-            ))
-            seen.add(path)
-        return sorted(outputs, key=lambda item: item.timestamp)
-
-    @staticmethod
-    def select_nearest_aida_output(
-        outputs: list[AidaOutput],
-        requested_time: str,
-        tolerance: pd.Timedelta,
-    ) -> AidaOutput | None:
-        """Return the closest available output within a strict time tolerance."""
-        requested = pd.to_datetime(requested_time, errors="coerce", utc=True)
-        if pd.isna(requested) or not outputs:
-            return None
-        nearest = min(outputs, key=lambda item: abs(item.timestamp - requested))
-        return nearest if abs(nearest.timestamp - requested) <= tolerance else None
-
-    def download_aida_output(
-        self,
-        output: AidaOutput,
+        requested_time: str | None,
+        latency: str,
     ) -> tuple[bool, str, bytes | None]:
-        """Download one authenticated HDF5 product and cache it by path."""
-        cached = type(self)._aida_download_cache.get(output.download_path)
-        if cached is not None:
-            return True, f"Loaded AIDA output {output.output_id} from cache.", cached
+        """Download one raw AIDA state using Benjamin Reid's official contract.
 
-        ok, message, response = self._request_response("GET", output.download_path)
-        if not ok or response is None:
-            return False, message, None
-        final_url = str(getattr(response, "url", ""))
-        text = str(getattr(response, "text", ""))
-        if "/accounts/login/" in final_url or 'id="login-form"' in text:
-            return False, "SERENE AIDA download rejected Token authentication.", None
-        content = bytes(getattr(response, "content", b""))
-        if not content:
-            return False, f"SERENE AIDA output {output.output_id} was empty.", None
-        type(self)._aida_download_cache[output.download_path] = content
-        return True, f"Downloaded AIDA output {output.output_id}.", content
-
-    def _request_response(
-        self,
-        method: str,
-        endpoint: str,
-    ) -> tuple[bool, str, requests.Response | None]:
-        """Return a raw authenticated response for text or binary consumers."""
+        Source: https://github.com/breid-phys/aida-ionosphere/blob/main/aida/api.py
+        (``downloadOutput``, MIT License). This method follows the upstream HTTP
+        request; scientific state interpretation remains in the upstream package.
+        """
+        if latency not in {"ultra", "rapid", "final"}:
+            return False, f"Unsupported AIDA latency: {latency}", None
         if not self.base_url:
             return False, "SERENE_API_BASE_URL is not configured.", None
-        url = endpoint if endpoint.startswith(("http://", "https://")) else urljoin(
-            f"{self.base_url}/", endpoint.lstrip("/")
-        )
+        if not self.token:
+            return False, "SERENE_API_TOKEN is not configured.", None
+
+        if requested_time is None:
+            cache_time = "latest"
+            request_data: dict[str, Any] = {
+                "latest": True,
+                "product": latency,
+                "file_type": "raw",
+            }
+        else:
+            parsed = pd.to_datetime(requested_time, errors="coerce", utc=True)
+            if pd.isna(parsed):
+                return False, f"Invalid requested AIDA time: {requested_time}", None
+            cache_time = parsed.isoformat()
+            request_data = {
+                "file_time": cache_time,
+                "product": latency,
+                "file_type": "raw",
+            }
+
+        cache_key = (cache_time, latency)
+        cached = type(self)._aida_raw_cache.get(cache_key)
+        if cached is not None:
+            return True, f"Loaded cached AIDA raw state for {cache_time}.", cached
+
+        url = f"{self.base_url}{ENDPOINTS['aida_raw_output']}"
         try:
             response = self._session.request(
-                method=method.upper(),
+                method="GET",
                 url=url,
                 headers=self._auth_headers(),
+                data=request_data,
                 timeout=self.timeout,
             )
         except requests.exceptions.RequestException as exc:
-            return False, f"SERENE API request failed: {exc}", None
+            return False, f"SERENE AIDA raw-output request failed: {exc}", None
+
+        if response.status_code in {401, 403}:
+            return False, "SERENE rejected the API token for AIDA raw output.", None
         if not response.ok:
-            return False, f"SERENE API returned status {response.status_code}: {url}", response
-        return True, "OK", response
+            return (
+                False,
+                f"SERENE AIDA raw-output API returned status {response.status_code}.",
+                None,
+            )
+
+        content = bytes(getattr(response, "content", b""))
+        headers = getattr(response, "headers", {}) or {}
+        content_type = str(headers.get("Content-Type", "")).lower()
+        if (
+            not content
+            or "html" in content_type
+            or not content.startswith(b"\x89HDF\r\n\x1a\n")
+        ):
+            return False, "SERENE AIDA raw-output API returned a non-HDF5 response.", None
+
+        type(self)._aida_raw_cache[cache_key] = content
+        return True, f"Downloaded AIDA raw state for {cache_time}.", content
 
     def fetch_available_models(self) -> tuple[bool, str, list[str]]:
         """List models exposed by the API.
