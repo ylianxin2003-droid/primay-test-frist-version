@@ -265,6 +265,7 @@ def generate_alerts(df: pd.DataFrame) -> pd.DataFrame:
         logger.info("No alerts generated — all variables within Normal range.")
         return pd.DataFrame()
 
+    alerts = _merge_geomagnetic_alerts(alerts)
     alerts_df = pd.DataFrame(alerts)
     alerts_df = alerts_df.sort_values("risk_level", key=lambda s: s.map(_risk_priority()))
     return alerts_df.reset_index(drop=True)
@@ -297,7 +298,7 @@ def generate_overall_risk(alerts: pd.DataFrame) -> tuple[str, str]:
     type_summary = "; ".join(parts) if parts else "various types"
 
     summary = (
-        f"Overall risk: {worst_level}. {len(alerts)} prototype advisor"
+        f"Loaded-sample peak risk: {worst_level}. {len(alerts)} prototype advisor"
         f"{'y' if len(alerts) == 1 else 'ies'} generated: {type_summary}."
     )
 
@@ -305,6 +306,35 @@ def generate_overall_risk(alerts: pd.DataFrame) -> tuple[str, str]:
 
 
 # ── Internal helpers ────────────────────────────────────────────────────────
+
+
+def _merge_geomagnetic_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Combine Kp and ap evidence because both describe one global storm."""
+    geomagnetic = [
+        alert for alert in alerts
+        if alert.get("alert_type") == "Geomagnetic storm risk"
+    ]
+    if len(geomagnetic) <= 1:
+        return alerts
+
+    priority = _risk_priority()
+    worst = min(
+        geomagnetic,
+        key=lambda alert: priority.get(str(alert.get("risk_level")), 99),
+    ).copy()
+    evidence = "; ".join(str(alert.get("reason", "")) for alert in geomagnetic)
+    worst["reason"] = f"Combined global geomagnetic evidence: {evidence}"
+    worst["threshold_info"] = worst["reason"]
+    worst["interpretation"] = (
+        f"{worst.get('interpretation', '')} Kp and ap are combined because they "
+        "describe the same planetary geomagnetic event."
+    ).strip()
+
+    non_geomagnetic = [
+        alert for alert in alerts
+        if alert.get("alert_type") != "Geomagnetic storm risk"
+    ]
+    return non_geomagnetic + [worst]
 
 
 def _find_threshold(variable_name: str) -> dict[str, Any] | None:

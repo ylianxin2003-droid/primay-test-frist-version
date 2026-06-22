@@ -34,31 +34,31 @@ def historical_risk_windows() -> pd.DataFrame:
     return pd.DataFrame([
         {
             "Time UTC": "2024-10-10 18:00 to 2024-10-11 03:00",
-            "Kp": "8.7",
-            "ap": "300",
+            "Peak Kp": "8.7",
+            "Peak ap": "300",
             "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2024-10-10T18:00:00 to 2024-10-11T03:00:00",
+            "Select range": "2024-10-10T18:00:00 to 2024-10-11T02:55:00",
         },
         {
             "Time UTC": "2025-01-01 15:00 to 18:00",
-            "Kp": "8.0",
-            "ap": "207",
+            "Peak Kp": "8.0",
+            "Peak ap": "207",
             "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2025-01-01T15:00:00 to 2025-01-01T18:00:00",
+            "Select range": "2025-01-01T15:00:00 to 2025-01-01T17:55:00",
         },
         {
             "Time UTC": "2025-11-12 00:00 to 06:00",
-            "Kp": "8.7",
-            "ap": "300",
+            "Peak Kp": "8.7",
+            "Peak ap": "300",
             "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2025-11-12T00:00:00 to 2025-11-12T06:00:00",
+            "Select range": "2025-11-12T00:00:00 to 2025-11-12T05:55:00",
         },
         {
             "Time UTC": "2026-01-19 18:00 to 2026-01-20 00:00",
-            "Kp": "8.7",
-            "ap": "300",
+            "Peak Kp": "8.7",
+            "Peak ap": "300",
             "Risk": "G4 Severe geomagnetic storm",
-            "Select range": "2026-01-19T18:00:00 to 2026-01-20T00:00:00",
+            "Select range": "2026-01-19T18:00:00 to 2026-01-19T23:55:00",
         },
     ])
 
@@ -82,14 +82,15 @@ def generate_historical_risk_alerts(start_time: str | None, end_time: str | None
             risk_level = _extract_risk_level(risk_text)
             reason = (
                 f"Selected range overlaps historical {risk_text} window "
-                f"({window['Select range']}); Kp {window['Kp']}, ap {window['ap']}."
+                f"({window['Select range']}); peak Kp {window['Peak Kp']}, "
+                f"peak ap {window['Peak ap']}."
             )
             alerts.append({
                 "timestamp": window["Time UTC"],
                 "region": "Global",
                 "alert_type": "Historical geomagnetic storm window",
                 "risk_level": risk_level,
-                "value": window["Kp"],
+                "value": window["Peak Kp"],
                 "threshold_info": reason,
                 "reason": reason,
                 "possible_aviation_impact": (
@@ -165,10 +166,22 @@ def parse_select_range_to_widgets(select_range: str) -> dict[str, Any] | None:
 
 def _match_alert(row: pd.Series, alerts: pd.DataFrame) -> pd.Series | None:
     candidates = alerts.copy()
+    merged_geomagnetic = False
     if "variable" in row and "reason" in candidates.columns:
         variable = str(row.get("variable", ""))
-        candidates = candidates[candidates["reason"].astype(str).str.startswith(f"{variable} =")]
-    if "value" in row and "value" in candidates.columns:
+        if variable.lower() in {"kp", "ap"} and "alert_type" in candidates.columns:
+            candidates = candidates[
+                (candidates["alert_type"] == "Geomagnetic storm risk")
+                & candidates["reason"].astype(str).str.contains(
+                    f"{variable} =", regex=False,
+                )
+            ]
+            merged_geomagnetic = not candidates.empty
+        else:
+            candidates = candidates[
+                candidates["reason"].astype(str).str.startswith(f"{variable} =")
+            ]
+    if not merged_geomagnetic and "value" in row and "value" in candidates.columns:
         row_value = pd.to_numeric(pd.Series([row.get("value")]), errors="coerce").iloc[0]
         alert_values = pd.to_numeric(candidates["value"], errors="coerce")
         if not pd.isna(row_value):

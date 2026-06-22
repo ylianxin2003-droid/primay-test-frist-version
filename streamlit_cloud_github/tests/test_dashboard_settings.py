@@ -93,6 +93,13 @@ class DashboardSettingsTest(unittest.TestCase):
 
         self.assertEqual(app_source.count("min_value=AIDA_ARCHIVE_START"), 2)
 
+    def test_app_distinguishes_global_and_regional_risk(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertIn("global Kp/ap excluded", app_source)
+        self.assertIn("latest loaded AIDA state", app_source)
+        self.assertIn('st.metric(f"Peak {variable}"', app_source)
+
 
 if __name__ == "__main__":
     unittest.main()

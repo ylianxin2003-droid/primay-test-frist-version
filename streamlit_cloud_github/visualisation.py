@@ -19,7 +19,17 @@ RISK_COLORS: dict[str, str] = {
     "Watch": "#f1c40f",
     "Warning": "#e67e22",
     "Severe": "#e74c3c",
+    "G1 Minor": "#f1c40f",
+    "G2 Moderate": "#f39c12",
+    "G3 Strong": "#e67e22",
+    "G4 Severe": "#e74c3c",
+    "G5 Extreme": "#8e0000",
 }
+
+RISK_DISPLAY_ORDER = [
+    "Normal", "Watch", "G1 Minor", "G2 Moderate", "Warning",
+    "G3 Strong", "Severe", "G4 Severe", "G5 Extreme",
+]
 
 ALERT_TYPE_COLORS: dict[str, str] = {
     "GNSS positioning risk": "#3498db",
@@ -240,7 +250,7 @@ def create_alert_timeline(alerts: pd.DataFrame) -> go.Figure:
         return fig
 
     work = alerts.copy()
-    work["timestamp"] = pd.to_datetime(work["timestamp"], errors="coerce")
+    work["timestamp"] = pd.to_datetime(work["timestamp"], errors="coerce", utc=True)
     work = work.sort_values("timestamp")
 
     # Group by alert_type and assign y-position.
@@ -277,6 +287,18 @@ def create_alert_timeline(alerts: pd.DataFrame) -> go.Figure:
         height=300 + 60 * len(alert_types),
         showlegend=False,
     )
+    valid_times = work["timestamp"].dropna()
+    if not valid_times.empty:
+        start = valid_times.min()
+        end = valid_times.max()
+        if end - start < pd.Timedelta(hours=1):
+            centre = start + (end - start) / 2
+            start = centre - pd.Timedelta(minutes=30)
+            end = centre + pd.Timedelta(minutes=30)
+        fig.update_xaxes(
+            range=[start, end],
+            tickformat="%Y-%m-%d<br>%H:%M UTC",
+        )
     return fig
 
 
@@ -314,7 +336,7 @@ def create_alert_summary(alerts: pd.DataFrame) -> go.Figure:
     counts = alerts.groupby(["alert_type", "risk_level"]).size().reset_index(name="count")
 
     # Ensure consistent risk level ordering.
-    risk_order = ["Normal", "Watch", "Warning", "Severe"]
+    risk_order = RISK_DISPLAY_ORDER
     counts["risk_level"] = pd.Categorical(
         counts["risk_level"], categories=risk_order, ordered=True
     )
