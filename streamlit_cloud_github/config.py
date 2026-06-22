@@ -28,6 +28,15 @@ SERENE_API_TIMEOUT: int = 30
 SERENE_AUTH_SCHEME: str = "Token"
 
 
+def _parse_timeout(value: object, default: int = 30) -> int:
+    """Return a positive timeout without crashing app startup on bad secrets."""
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
 def _load_env_file() -> None:
     """Load .env from this repository root only."""
     if not _ENV_PATH.exists():
@@ -52,7 +61,9 @@ def _read_os_env() -> None:
 
     SERENE_API_BASE_URL = os.getenv("SERENE_API_BASE_URL", SERENE_API_BASE_URL).strip()
     SERENE_API_TOKEN = os.getenv("SERENE_API_TOKEN", SERENE_API_TOKEN).strip()
-    SERENE_API_TIMEOUT = int(os.getenv("SERENE_API_TIMEOUT", str(SERENE_API_TIMEOUT)) or "30")
+    SERENE_API_TIMEOUT = _parse_timeout(
+        os.getenv("SERENE_API_TIMEOUT", str(SERENE_API_TIMEOUT)),
+    )
     SERENE_AUTH_SCHEME = (
         os.getenv("SERENE_AUTH_SCHEME", SERENE_AUTH_SCHEME).strip() or "Token"
     )
@@ -94,7 +105,7 @@ def _load_streamlit_secrets() -> None:
     if token:
         SERENE_API_TOKEN = token
     if timeout:
-        SERENE_API_TIMEOUT = int(timeout)
+        SERENE_API_TIMEOUT = _parse_timeout(timeout)
     if scheme:
         SERENE_AUTH_SCHEME = scheme
 

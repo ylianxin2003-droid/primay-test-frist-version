@@ -1,30 +1,18 @@
-"""
-SERENE API client.
-
-Official request format (Birmingham SERENE)::
-
-    curl -X POST \\
-      -H "Authorization: Token <SERENE_API_TOKEN>" \\
-      -d latitude=52.4862 -d longitude=1.8904 \\
-      https://spaceweather.bham.ac.uk/api/calc/
-
-- Method: POST
-- Auth: ``Authorization: Token <token>``  (not Bearer)
-- Body: form-urlencoded ``latitude`` and ``longitude`` only
-
-Endpoint paths are listed in ``ENDPOINTS`` for future API expansion.
-"""
+"""Authenticated SERENE client for AIDA HDF5 outputs and global Kp/ap data."""
 
 from __future__ import annotations
 
 import logging
 import os
+import time
+from dataclasses import dataclass
 from io import StringIO
 from typing import Any
+from urllib.parse import urljoin
 
-import numpy as np
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -35,8 +23,7 @@ from config import (
     SERENE_AUTH_SCHEME,
 )
 
-# Max /api/calc/ calls per load (each point is one HTTP request).
-MAX_GRID_POINTS = int(os.getenv("SERENE_MAX_GRID_POINTS", "50"))
+KP_AP_CACHE_TTL_SECONDS = int(os.getenv("SERENE_KP_AP_CACHE_TTL", "3600"))
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +40,6 @@ ENDPOINTS: dict[str, str] = {
     "model_output": "/api/model-output/",
 }
 
-# Coordinates used for connection smoke tests (official curl example).
-_OFFICIAL_TEST_LAT = 52.4862
-_OFFICIAL_TEST_LON = 1.8904
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 class SereneAPIError(Exception):
     """Non-fatal SERENE API error with a user-readable message."""
 
@@ -66,6 +47,17 @@ class SereneAPIError(Exception):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+
+
+@dataclass(frozen=True)
+class AidaOutput:
+    """Metadata required to retrieve one AIDA parameter product."""
+
+    output_id: str
+    timestamp: pd.Timestamp
+    cadence: str
+    kind: str
+    download_path: str
 
 
 class SereneClient:
@@ -82,6 +74,9 @@ class SereneClient:
     auth_scheme : str, optional
         Official SERENE value is ``Token`` (override ``SERENE_AUTH_SCHEME``).
     """
+
+    _kp_ap_csv_cache: tuple[float, str] | None = None
+    _aida_download_cache: dict[str, bytes] = {}
 
     def __init__(
         self,
@@ -219,23 +214,157 @@ class SereneClient:
         if not self.token:
             return False, "SERENE_API_TOKEN is not configured."
 
-        # Official smoke test: POST /api/calc/ (same as documented curl example).
-        ok, msg, _ = self._request(
-            "POST",
-            ENDPOINTS["calc"],
-            data=self._calc_form(_OFFICIAL_TEST_LAT, _OFFICIAL_TEST_LON),
-        )
+        ok, msg, outputs = self.fetch_aida_catalog("ultra", "assimilation")
         if ok:
             return (
                 True,
-                f"Connected to SERENE API at {self.base_url} "
-                f"(POST {ENDPOINTS['calc']} OK).",
+                f"Connected to SERENE AIDA output API at {self.base_url} "
+                f"({len(outputs)} output(s) available).",
             )
 
         if "401" in msg or "403" in msg:
             return False, msg
 
         return False, msg
+
+    def fetch_aida_catalog(
+        self,
+        cadence: str,
+        kind: str = "assimilation",
+    ) -> tuple[bool, str, list[AidaOutput]]:
+        """Read an authenticated SERENE output page and extract 2D products."""
+        if cadence not in {"ultra", "rapid", "final"}:
+            return False, f"Unsupported AIDA cadence: {cadence}", []
+        if kind not in {"assimilation", "forecast"}:
+            return False, f"Unsupported AIDA output kind: {kind}", []
+        if not self.base_url:
+            return False, "SERENE_API_BASE_URL is not configured.", []
+        if not self.token:
+            return False, "SERENE_API_TOKEN is not configured.", []
+
+        endpoint = f"/output/aida/{cadence}/{kind}/"
+        ok, message, response = self._request_response("GET", endpoint)
+        if not ok or response is None:
+            return False, message, []
+
+        final_url = str(getattr(response, "url", ""))
+        text = str(getattr(response, "text", ""))
+        if "/accounts/login/" in final_url or 'id="login-form"' in text:
+            return (
+                False,
+                "SERENE output catalog rejected Token authentication and returned the login page.",
+                [],
+            )
+
+        outputs = self.parse_aida_catalog_html(text, cadence=cadence, kind=kind)
+        if not outputs:
+            return False, "SERENE AIDA catalog contained no downloadable 2D products.", []
+        return True, f"Found {len(outputs)} AIDA {cadence} {kind} output(s).", outputs
+
+    @staticmethod
+    def parse_aida_catalog_html(
+        html: str,
+        cadence: str,
+        kind: str,
+    ) -> list[AidaOutput]:
+        """Parse output IDs, UTC timestamps, and parameter download paths."""
+        soup = BeautifulSoup(html, "html.parser")
+        outputs: list[AidaOutput] = []
+        seen: set[str] = set()
+        for anchor in soup.select('a[href*="/param_2d/download/"]'):
+            path = str(anchor.get("href", "")).strip()
+            parts = [part for part in path.split("/") if part]
+            try:
+                marker = parts.index("aida")
+                parsed_cadence = parts[marker + 1]
+                parsed_kind = parts[marker + 2]
+                output_id = parts[marker + 3]
+            except (ValueError, IndexError):
+                continue
+            if not output_id.isdigit() or path in seen:
+                continue
+
+            row = anchor.find_parent("tr")
+            timestamp: pd.Timestamp | None = None
+            if row is not None:
+                for cell in row.find_all(["td", "th"]):
+                    candidate = cell.get_text(" ", strip=True)
+                    if "-" not in candidate or ":" not in candidate:
+                        continue
+                    parsed = pd.to_datetime(candidate, errors="coerce", utc=True)
+                    if not pd.isna(parsed):
+                        timestamp = parsed
+                        break
+            if timestamp is None:
+                continue
+            outputs.append(AidaOutput(
+                output_id=output_id,
+                timestamp=timestamp,
+                cadence=parsed_cadence or cadence,
+                kind=parsed_kind or kind,
+                download_path=path,
+            ))
+            seen.add(path)
+        return sorted(outputs, key=lambda item: item.timestamp)
+
+    @staticmethod
+    def select_nearest_aida_output(
+        outputs: list[AidaOutput],
+        requested_time: str,
+        tolerance: pd.Timedelta,
+    ) -> AidaOutput | None:
+        """Return the closest available output within a strict time tolerance."""
+        requested = pd.to_datetime(requested_time, errors="coerce", utc=True)
+        if pd.isna(requested) or not outputs:
+            return None
+        nearest = min(outputs, key=lambda item: abs(item.timestamp - requested))
+        return nearest if abs(nearest.timestamp - requested) <= tolerance else None
+
+    def download_aida_output(
+        self,
+        output: AidaOutput,
+    ) -> tuple[bool, str, bytes | None]:
+        """Download one authenticated HDF5 product and cache it by path."""
+        cached = type(self)._aida_download_cache.get(output.download_path)
+        if cached is not None:
+            return True, f"Loaded AIDA output {output.output_id} from cache.", cached
+
+        ok, message, response = self._request_response("GET", output.download_path)
+        if not ok or response is None:
+            return False, message, None
+        final_url = str(getattr(response, "url", ""))
+        text = str(getattr(response, "text", ""))
+        if "/accounts/login/" in final_url or 'id="login-form"' in text:
+            return False, "SERENE AIDA download rejected Token authentication.", None
+        content = bytes(getattr(response, "content", b""))
+        if not content:
+            return False, f"SERENE AIDA output {output.output_id} was empty.", None
+        type(self)._aida_download_cache[output.download_path] = content
+        return True, f"Downloaded AIDA output {output.output_id}.", content
+
+    def _request_response(
+        self,
+        method: str,
+        endpoint: str,
+    ) -> tuple[bool, str, requests.Response | None]:
+        """Return a raw authenticated response for text or binary consumers."""
+        if not self.base_url:
+            return False, "SERENE_API_BASE_URL is not configured.", None
+        url = endpoint if endpoint.startswith(("http://", "https://")) else urljoin(
+            f"{self.base_url}/", endpoint.lstrip("/")
+        )
+        try:
+            response = self._session.request(
+                method=method.upper(),
+                url=url,
+                headers=self._auth_headers(),
+                timeout=self.timeout,
+            )
+        except requests.exceptions.RequestException as exc:
+            return False, f"SERENE API request failed: {exc}", None
+        if not response.ok:
+            return False, f"SERENE API returned status {response.status_code}: {url}", response
+        return True, "OK", response
 
     def fetch_available_models(self) -> tuple[bool, str, list[str]]:
         """List models exposed by the API.
@@ -249,7 +378,7 @@ class SereneClient:
                 return True, msg, models
 
         # ★ Placeholder until SERENE documents GET /api/models/
-        return True, "Using default model list (models endpoint not available).", ["AIDA", "TOMIRIS"]
+        return True, "Using AIDA (models endpoint not available).", ["AIDA"]
 
     def fetch_available_variables(self, model: str | None = None) -> tuple[bool, str, list[str]]:
         """List variables for a model."""
@@ -264,7 +393,7 @@ class SereneClient:
                 return True, msg, variables
 
         # ★ Placeholder defaults for dashboard prototyping
-        defaults = ["TEC", "MUF3000", "foF2", "MUF3000_depression", "foF2_depression"]
+        defaults = ["TEC", "foF2", "MUF3000F2", "NmF2", "hmF2"]
         note = "Using default variable list (variables endpoint not available)."
         if not ok and "404" in msg:
             return True, note, defaults
@@ -272,60 +401,23 @@ class SereneClient:
             return True, note, defaults
         return False, msg, defaults
 
-    def fetch_model_output(
-        self,
-        model: str,
-        start_time: str,
-        end_time: str,
-        variables: list[str] | None = None,
-        region: dict[str, float] | None = None,
-        grid_step: float = 10.0,
-        progress_callback: Any | None = None,
-    ) -> tuple[bool, str, Any]:
-        """Fetch data by sampling ``POST /api/calc/`` on a lat/lon grid.
-
-        The official SERENE API is point-based (``latitude`` / ``longitude`` form
-        fields only).  ``model``, ``start_time``, and ``end_time`` are kept in the
-        signature for dashboard compatibility but are not sent to ``/api/calc/``
-        until SERENE documents those parameters.
-        """
-        del variables, start_time, end_time  # reserved for future API versions
-
-        r = region or {
-            "lat_min": -90.0,
-            "lat_max": 90.0,
-            "lon_min": -180.0,
-            "lon_max": 180.0,
-        }
-        ok_grid, msg_grid, batch = self._fetch_calc_grid(
-            lat_min=r["lat_min"],
-            lat_max=r["lat_max"],
-            lon_min=r["lon_min"],
-            lon_max=r["lon_max"],
-            lat_step=grid_step,
-            lon_step=grid_step,
-            model=model,
-            progress_callback=progress_callback,
-        )
-        if ok_grid and batch:
-            return True, (
-                f"Grid sampled via official POST {ENDPOINTS['calc']} "
-                f"({len(batch)} point(s))."
-            ), batch
-
-        return False, msg_grid or "No data returned from SERENE API.", None
-
     def fetch_kp_ap_indices(
         self,
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> tuple[bool, str, pd.DataFrame]:
         """Fetch SERENE Kp/ap API resource data and return dashboard rows."""
-        ok, msg, data = self._request_from_base(
-            "GET",
-            "https://serene.bham.ac.uk",
-            ENDPOINTS["kp_ap"],
-        )
+        cached = type(self)._kp_ap_csv_cache
+        if cached and time.monotonic() - cached[0] < KP_AP_CACHE_TTL_SECONDS:
+            ok, msg, data = True, "OK (cached)", cached[1]
+        else:
+            ok, msg, data = self._request_from_base(
+                "GET",
+                "https://serene.bham.ac.uk",
+                ENDPOINTS["kp_ap"],
+            )
+            if ok and isinstance(data, str):
+                type(self)._kp_ap_csv_cache = (time.monotonic(), data)
         if not ok or not isinstance(data, str):
             return False, msg, pd.DataFrame()
 
@@ -379,83 +471,6 @@ class SereneClient:
 
         return pd.DataFrame(rows)
 
-    @staticmethod
-    def estimate_grid_points(
-        lat_min: float,
-        lat_max: float,
-        lon_min: float,
-        lon_max: float,
-        lat_step: float,
-        lon_step: float,
-        max_points: int = MAX_GRID_POINTS,
-    ) -> tuple[int, float, float]:
-        """Return (point_count, effective_lat_step, effective_lon_step)."""
-        step_lat, step_lon = float(lat_step), float(lon_step)
-        for _ in range(20):
-            lats = np.arange(lat_min, lat_max + step_lat / 2, step_lat)
-            lons = np.arange(lon_min, lon_max + step_lon / 2, step_lon)
-            count = len(lats) * len(lons)
-            if count <= max_points:
-                return count, step_lat, step_lon
-            step_lat = min(step_lat * 1.5, 45.0)
-            step_lon = min(step_lon * 1.5, 45.0)
-        return max_points, step_lat, step_lon
-
-    def _fetch_calc_grid(
-        self,
-        lat_min: float,
-        lat_max: float,
-        lon_min: float,
-        lon_max: float,
-        lat_step: float,
-        lon_step: float,
-        model: str,
-        progress_callback: Any | None = None,
-    ) -> tuple[bool, str, list[dict[str, Any]]]:
-        """Sample official ``POST /api/calc/`` on a lat/lon grid."""
-        n_pts, eff_lat_step, eff_lon_step = self.estimate_grid_points(
-            lat_min, lat_max, lon_min, lon_max, lat_step, lon_step,
-        )
-        lats = np.arange(lat_min, lat_max + eff_lat_step / 2, eff_lat_step)
-        lons = np.arange(lon_min, lon_max + eff_lon_step / 2, eff_lon_step)
-        points = [(float(lat), float(lon)) for lat in lats for lon in lons]
-
-        results: list[dict[str, Any]] = []
-        success_count = 0
-        total = len(points)
-
-        for i, (lat, lon) in enumerate(points):
-            if progress_callback:
-                progress_callback(i + 1, total)
-            ok, _msg, data = self._request(
-                "POST",
-                ENDPOINTS["calc"],
-                data=self._calc_form(lat, lon),
-            )
-            if ok and data is not None:
-                success_count += 1
-                results.append({
-                    "lat": lat,
-                    "lon": lon,
-                    "model": model,
-                    "response": data,
-                })
-
-        if success_count == 0:
-            return False, "All /api/calc/ point requests failed or returned empty data.", []
-
-        note = ""
-        if eff_lat_step > lat_step or eff_lon_step > lon_step:
-            note = (
-                f" Grid auto-widened to {eff_lat_step:.1f}°×{eff_lon_step:.1f}° "
-                f"(max {MAX_GRID_POINTS} API calls)."
-            )
-        return (
-            True,
-            f"{success_count}/{total} grid point(s) returned data.{note}",
-            results,
-        )
-
     def _request_from_base(
         self,
         method: str,
@@ -469,7 +484,7 @@ class SereneClient:
             response = self._session.request(
                 method=method.upper(),
                 url=url,
-                headers=self._auth_headers(),
+                headers={},
                 params=params,
                 timeout=self.timeout,
             )
