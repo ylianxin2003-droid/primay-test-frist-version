@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = PROJECT_ROOT / "app.py"
 CLIENT_PATH = PROJECT_ROOT / "serene_client.py"
+REQUIREMENTS_PATH = PROJECT_ROOT / "requirements.txt"
+ENV_EXAMPLE_PATH = PROJECT_ROOT / ".env.example"
 
 
 class DashboardSettingsTest(unittest.TestCase):
@@ -49,6 +51,25 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertEqual(_parse_timeout("not-a-number"), 30)
         self.assertEqual(_parse_timeout("0"), 30)
         self.assertEqual(_parse_timeout("45"), 45)
+
+    def test_upstream_aida_dependency_is_pinned(self):
+        requirements = REQUIREMENTS_PATH.read_text()
+
+        self.assertIn("numpy>=1.25,<2", requirements)
+        self.assertIn("pandas<2", requirements)
+        self.assertIn(
+            "git+https://github.com/breid-phys/aida-ionosphere.git@v0.1.3",
+            requirements,
+        )
+        self.assertNotIn("beautifulsoup4", requirements)
+
+    def test_example_uses_raw_api_host(self):
+        example = ENV_EXAMPLE_PATH.read_text()
+
+        self.assertIn(
+            "SERENE_API_BASE_URL=https://spaceweather.bham.ac.uk",
+            example,
+        )
 
     def test_combine_date_time_to_iso8601(self):
         from app_utils import combine_date_time_iso

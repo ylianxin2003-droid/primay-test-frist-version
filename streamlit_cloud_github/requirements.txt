@@ -1,8 +1,8 @@
 streamlit
 requests
 python-dotenv
-pandas
-numpy
+pandas<2
+numpy>=1.25,<2
 plotly
 h5py>=3.11,<4
-beautifulsoup4>=4.12,<5
+git+https://github.com/breid-phys/aida-ionosphere.git@v0.1.3
