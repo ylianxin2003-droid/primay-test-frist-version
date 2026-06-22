@@ -97,6 +97,8 @@ class ForecastEngineTest(unittest.TestCase):
 
         point_count = sum(len(trace.lat) for trace in fig.data if hasattr(trace, "lat"))
         self.assertEqual(point_count, 2)
+        self.assertEqual(fig.layout.geo.fitbounds, "locations")
+        self.assertTrue(all(trace.marker.size == 10 for trace in fig.data))
 
 
 if __name__ == "__main__":

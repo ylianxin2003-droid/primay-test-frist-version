@@ -341,7 +341,7 @@ def _render_empty_state() -> None:
 def _render_alerts(alerts: pd.DataFrame) -> None:
     st.subheader("ICAO-style prototype risk advisories")
     overall, summary = generate_overall_risk(alerts)
-    st.metric("Current advisory risk", overall)
+    st.metric("Loaded-sample peak advisory risk", overall)
     st.caption(summary)
     st.caption(DISCLAIMER)
 
@@ -350,9 +350,9 @@ def _render_alerts(alerts: pd.DataFrame) -> None:
         return
 
     if overall in {"G5 Extreme", "G4 Severe", "Severe"}:
-        st.error(f"Active prototype warning: {overall}")
+        st.error(f"Selected-range prototype warning: {overall}")
     else:
-        st.warning(f"Active prototype advisory: {overall}")
+        st.warning(f"Selected-range prototype advisory: {overall}")
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -378,10 +378,15 @@ def _render_alerts(alerts: pd.DataFrame) -> None:
 
 def _render_forecast() -> None:
     forecast = st.session_state.forecast
-    st.subheader("Risk forecast map")
+    st.subheader("Regional ionospheric risk forecast")
     forecast_level, forecast_message = forecast_summary(forecast)
-    st.metric("Forecast highest risk", forecast_level)
+    st.metric("Regional forecast highest risk", forecast_level)
     st.caption(forecast_message)
+    st.caption(
+        "Regional map only — global Kp/ap excluded. "
+        "‘Now’ means the latest loaded AIDA state, which may be a historical time "
+        "rather than the present clock time."
+    )
     st.caption(
         "Prototype note: absolute TEC is an illustrative proxy. TEC gradients, "
         "anomalies, variability, and scintillation are more directly related to GNSS degradation."
@@ -394,7 +399,14 @@ def _render_forecast() -> None:
     horizon_options = [label for label, _hours in FORECAST_HORIZONS]
     selected_horizon = st.radio("Forecast horizon", horizon_options, horizontal=True)
     st.plotly_chart(
-        create_risk_forecast_map(forecast, horizon=selected_horizon),
+        create_risk_forecast_map(
+            forecast,
+            horizon=selected_horizon,
+            title=(
+                f"Regional ionospheric risk ({selected_horizon}) — "
+                "global Kp/ap excluded"
+            ),
+        ),
         width="stretch",
     )
 
@@ -471,7 +483,7 @@ def _render_global_indices(df: pd.DataFrame) -> None:
             errors="coerce",
         ).dropna()
         with column:
-            st.metric(f"Latest {variable}", f"{values.iloc[-1]:.1f}" if not values.empty else "N/A")
+            st.metric(f"Peak {variable}", f"{values.max():.1f}" if not values.empty else "N/A")
     st.plotly_chart(create_time_series_plot(global_indices), width="stretch")
 
 

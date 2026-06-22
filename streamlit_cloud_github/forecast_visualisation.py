@@ -34,7 +34,6 @@ def create_risk_forecast_map(
         lat="lat",
         lon="lon",
         color="risk_level",
-        size="marker_size",
         hover_name="driver",
         hover_data={
             "lat": ":.2f",
@@ -52,11 +51,13 @@ def create_risk_forecast_map(
     )
     fig.update_traces(
         marker=dict(
+            size=10,
             line=dict(width=0.8, color="rgba(30, 30, 30, 0.55)"),
             opacity=0.82,
         )
     )
     fig.update_geos(
+        fitbounds="locations",
         showcoastlines=True,
         coastlinecolor="gray",
         showland=True,
