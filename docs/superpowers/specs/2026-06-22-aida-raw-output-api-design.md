@@ -27,10 +27,10 @@ Use the upstream `aida` package for raw-state interpretation and grid
 calculation, while retaining a small dashboard-owned HTTP client for download
 counting, in-memory caching, error reporting, and Streamlit Secrets.
 
-The official package currently requires Python 3.9-3.11-compatible versions of
-`pandas<2` and `numpy<2`; Streamlit Cloud will therefore be pinned to Python
-3.11. The dependency will be installed from the upstream Git tag so deployments
-are reproducible.
+The official package currently requires `pandas<2` and `numpy<2`; Streamlit
+Cloud will therefore use Python 3.11, where compatible wheels are available.
+The dependency will be installed from the upstream Git tag so deployments are
+reproducible.
 
 ## Data flow
 
@@ -110,8 +110,10 @@ Grid spacing and bounding-box size must never alter the raw download count.
 ### Configuration and deployment
 
 - Set `SERENE_API_BASE_URL=https://spaceweather.bham.ac.uk`.
-- Add a Streamlit `runtime.txt` selecting Python 3.11.
 - Pin the upstream package to `v0.1.3` in `requirements.txt`.
+- Document the required Streamlit Community Cloud redeployment with Python 3.11
+  selected in Advanced settings. Community Cloud does not change an existing
+  app's Python version in place.
 - Keep the API token only in Streamlit Secrets or a gitignored local `.env`.
 - Document that previously exposed tokens must be revoked before deployment.
 
