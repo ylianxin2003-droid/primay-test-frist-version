@@ -58,7 +58,7 @@ class AidaRawOutputClientTest(unittest.TestCase):
         )
         self.assertEqual(kwargs["headers"]["Authorization"], "Token test-token")
         self.assertEqual(kwargs["data"], {
-            "file_time": "2025-01-01T13:55:00+00:00",
+            "file_time": "2025-01-01T13:55:00",
             "product": "rapid",
             "file_type": "raw",
         })
@@ -139,8 +139,9 @@ class SereneClient:
             if pd.isna(parsed):
                 return False, f"Invalid requested AIDA time: {requested_time}", None
             cache_time = parsed.isoformat()
+            upstream_file_time = parsed.tz_convert("UTC").tz_localize(None).isoformat()
             request_data = {
-                "file_time": parsed.isoformat(),
+                "file_time": upstream_file_time,
                 "product": latency,
                 "file_type": "raw",
             }
