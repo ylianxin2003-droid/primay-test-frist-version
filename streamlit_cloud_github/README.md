@@ -12,11 +12,12 @@ spatial ionospheric parameters.
 ```text
 Streamlit Secrets
   -> GET https://spaceweather.bham.ac.uk/api/download-output/
+  -> GET https://spaceweather.bham.ac.uk/api/download-forecast/
   -> one raw AIDA HDF5 state per distinct requested time
   -> official AIDAState.readFile() and AIDAState.calc()
   -> exact local bounding-box/grid calculation
   -> time, lat, lon, variable, value, model DataFrame
-  -> maps, alerts and short-horizon prototype forecasts
+  -> ICAO-style category maps, summary table and research text messages
 ```
 
 Changing the map extent or spacing changes only local calculation and plotting.
@@ -28,7 +29,7 @@ are deduplicated.
 Raw-state interpretation and scientific grid calculation use Benjamin Reid's
 MIT-licensed [`breid-phys/aida-ionosphere`](https://github.com/breid-phys/aida-ionosphere)
 package, pinned to `v0.1.3`. The authenticated request follows its official
-[`downloadOutput` implementation](https://github.com/breid-phys/aida-ionosphere/blob/main/aida/api.py).
+[`downloadOutput` implementation](https://github.com/breid-phys/aida-ionosphere/blob/v0.1.3/aida/api.py).
 Nearby source comments identify every boundary that relies on this contract;
 the dashboard does not copy the upstream scientific model implementation.
 
@@ -36,13 +37,25 @@ Supported spatial fields are `TEC`, `foF2`, `MUF3000F2` (upstream
 `MUF3000`), `NmF2`, and `hmF2`. Kp/ap are global planetary indices and are
 shown only as global context, never as regional map cells.
 
-## Forecast limitations
+## SERENE-only ICAO-style products
 
-The forecast is a transparent research prototype, not a trained AI model. It
-uses short recent trends when multiple states are available and low-confidence
-persistence otherwise. Displayed probability/confidence values are heuristic,
-not statistically calibrated. High absolute TEC alone is not proof of GNSS
-risk; gradients, anomalies, variability and scintillation need additional data.
+The primary dashboard uses three research categories: `OK`, `MODERATE`, and
+`SEVERE`. Vertical TEC uses the ICAO 125/175 TECU thresholds. The Kp auroral
+absorption proxy uses Kp 8/9 and remains global. Post-storm depression uses
+30%/50%, a same-UTC 30-day AIDA median, and the requirement that SERENE Kp
+reached 6 during the preceding 96 hours.
+
+`Max 3h` loads 37 five-minute AIDA analysis states. Each distinct time is
+downloaded once; all regional grid cells are calculated locally. The +3h and
++6h columns use official SERENE AIDA forecast HDF5 products (periods 180 and
+360 minutes), not linear extrapolation.
+
+SERENE AIDA does not currently provide amplitude scintillation S4, phase
+scintillation sigma-phi, 30 MHz riometer PCA, or solar-X-ray SWF inputs. The UI
+marks them `Not available from SERENE` and never fabricates zero or `OK`.
+
+Generated SWX text is deterministic and explicitly marked `STATUS: TEST` and
+`RESEARCH PROTOTYPE - NOT FOR OPERATIONAL USE`.
 
 ## Streamlit Community Cloud deployment
 
@@ -70,9 +83,12 @@ After deployment:
 
 1. Click **Test SERENE API connection** and expect `Connected to SERENE AIDA raw-output API`.
 2. Load a small region and confirm AIDA maps appear.
-3. Compare a global 30-degree grid (91 local points) and 2-degree grid (16,471
-   local points) with the same times. Raw dataset download count must not change.
-4. Confirm Kp/ap appear only in the global geomagnetic panel.
+3. Confirm the table contains Latest, Max 3h, +3h and +6h columns.
+4. Confirm the categorical map uses only OK/MODERATE/SEVERE (plus grey
+   unavailable cells).
+5. Compare 30-degree and 2-degree grids for the same analysis time. The number
+   of time-product API requests must not change.
+6. Confirm Kp/ap appear only in the global geomagnetic panel.
 
 Local automated tests:
 

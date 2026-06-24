@@ -33,11 +33,176 @@ class FakeRawClient:
         self.download_requests.append((requested_time, latency))
         return True, f"downloaded {requested_time or 'latest'}", b"raw-state"
 
+    def download_aida_forecast(self, requested_time, latency, period_minutes):
+        self.forecast_requests = getattr(self, "forecast_requests", [])
+        self.forecast_requests.append((requested_time, latency, period_minutes))
+        return True, f"forecast {period_minutes}", b"forecast-state"
+
     def fetch_kp_ap_indices(self, **_kwargs):
         return False, "indices unavailable", pd.DataFrame()
 
 
 class ApiOnlyDataLoaderTest(unittest.TestCase):
+    def test_three_hour_schedule_has_37_five_minute_states(self):
+        import data_loader
+
+        times = data_loader.three_hour_aida_times("2026-06-21T20:00:00Z")
+
+        self.assertEqual(len(times), 37)
+        self.assertEqual(times[0], pd.Timestamp("2026-06-21T17:00:00Z"))
+        self.assertEqual(times[-1], pd.Timestamp("2026-06-21T20:00:00Z"))
+        self.assertTrue(all(
+            right - left == pd.Timedelta(minutes=5)
+            for left, right in zip(times, times[1:])
+        ))
+
+    def test_psd_reference_schedule_uses_previous_30_days_at_same_utc(self):
+        import data_loader
+
+        times = data_loader.psd_reference_times("2026-06-21T20:00:00Z")
+
+        self.assertEqual(len(times), 30)
+        self.assertEqual(times[0], pd.Timestamp("2026-05-22T20:00:00Z"))
+        self.assertEqual(times[-1], pd.Timestamp("2026-06-20T20:00:00Z"))
+
+    def test_icao_products_use_one_download_per_time_and_official_forecasts(self):
+        import data_loader
+
+        client = FakeRawClient()
+        with (
+            patch.object(data_loader, "SereneClient", return_value=client),
+            patch.object(data_loader, "calculate_aida_grid", side_effect=_fake_calculation),
+        ):
+            bundle = data_loader.load_icao_products(
+                analysis_time="2026-06-21T20:00:00Z",
+                variables=["TEC"],
+                region=GLOBAL_REGION,
+                grid_step=30,
+                include_psd_baseline=False,
+            )
+
+        self.assertEqual(len(client.download_requests), 37)
+        self.assertEqual(len(set(client.download_requests)), 37)
+        self.assertEqual(client.forecast_requests, [
+            ("2026-06-21T20:00:00+00:00", "ultra", 180),
+            ("2026-06-21T20:00:00+00:00", "ultra", 360),
+        ])
+        self.assertIn("analysis", set(bundle.products["product_kind"]))
+        self.assertIn("rolling", set(bundle.products["product_kind"]))
+        self.assertIn("forecast_180", set(bundle.products["product_kind"]))
+        self.assertIn("forecast_360", set(bundle.products["product_kind"]))
+        self.assertEqual(bundle.status.metadata["analysis_downloads"], 37)
+        self.assertEqual(bundle.status.metadata["forecast_downloads"], 2)
+
+    def test_icao_products_keep_observations_when_forecasts_fail(self):
+        import data_loader
+
+        class ForecastFailingClient(FakeRawClient):
+            def download_aida_forecast(self, requested_time, latency, period_minutes):
+                return False, f"forecast {period_minutes} unavailable", None
+
+        client = ForecastFailingClient()
+        with (
+            patch.object(data_loader, "SereneClient", return_value=client),
+            patch.object(data_loader, "calculate_aida_grid", side_effect=_fake_calculation),
+        ):
+            bundle = data_loader.load_icao_products(
+                analysis_time="2026-06-21T20:00:00Z",
+                variables=["TEC"],
+                region=GLOBAL_REGION,
+                grid_step=30,
+                include_three_hour_window=False,
+                include_psd_baseline=False,
+            )
+
+        self.assertFalse(bundle.products.empty)
+        self.assertEqual(set(bundle.products["product_kind"]), {"analysis", "rolling"})
+        self.assertTrue(any("forecast 180 unavailable" in item for item in bundle.status.warnings))
+
+    def test_psd_reference_requires_all_30_daily_states(self):
+        import data_loader
+
+        products = pd.DataFrame([
+            {
+                "product_kind": "baseline",
+                "requested_time": pd.Timestamp("2026-05-01T12:00:00Z") + pd.Timedelta(days=index),
+                "lat": 50.0,
+                "lon": 1.0,
+                "variable": "MUF3000F2",
+                "value": 10.0,
+            }
+            for index in range(29)
+        ] + [{
+            "product_kind": "analysis",
+            "requested_time": pd.Timestamp("2026-06-01T12:00:00Z"),
+            "lat": 50.0,
+            "lon": 1.0,
+            "variable": "MUF3000F2",
+            "value": 7.0,
+        }])
+
+        result = data_loader._attach_psd_reference(products)
+
+        analysis = result[result["product_kind"] == "analysis"].iloc[0]
+        self.assertTrue(pd.isna(analysis.get("psd_percent")))
+
+    def test_psd_reference_uses_30_day_median(self):
+        import data_loader
+
+        products = pd.DataFrame([
+            {
+                "product_kind": "baseline",
+                "requested_time": pd.Timestamp("2026-05-01T12:00:00Z") + pd.Timedelta(days=index),
+                "lat": 50.0,
+                "lon": 1.0,
+                "variable": "MUF3000F2",
+                "value": 10.0,
+            }
+            for index in range(30)
+        ] + [{
+            "product_kind": "analysis",
+            "requested_time": pd.Timestamp("2026-06-01T12:00:00Z"),
+            "lat": 50.0,
+            "lon": 1.0,
+            "variable": "MUF3000F2",
+            "value": 7.0,
+        }])
+
+        result = data_loader._attach_psd_reference(products)
+
+        analysis = result[result["product_kind"] == "analysis"].iloc[0]
+        self.assertEqual(float(analysis["reference_value"]), 10.0)
+        self.assertAlmostEqual(float(analysis["psd_percent"]), 30.0)
+
+    def test_loader_aggregates_baseline_before_building_product_table(self):
+        import data_loader
+
+        client = FakeRawClient()
+        captured = {}
+
+        def capture_reference(products, reference=None):
+            captured["product_kinds"] = set(products["product_kind"])
+            captured["reference"] = reference
+            return products
+
+        with (
+            patch.object(data_loader, "SereneClient", return_value=client),
+            patch.object(data_loader, "calculate_aida_grid", side_effect=_fake_calculation),
+            patch.object(data_loader, "_attach_psd_reference", side_effect=capture_reference),
+        ):
+            data_loader.load_icao_products(
+                analysis_time="2026-06-21T20:00:00Z",
+                variables=["MUF3000F2"],
+                region=GLOBAL_REGION,
+                grid_step=30,
+                include_three_hour_window=False,
+                include_psd_baseline=True,
+            )
+
+        self.assertNotIn("baseline", captured["product_kinds"])
+        self.assertIsInstance(captured["reference"], pd.DataFrame)
+        self.assertEqual(float(captured["reference"].iloc[0]["reference_value"]), 30.0)
+
     def test_api_failure_does_not_fall_back_to_local_file(self):
         import data_loader
 

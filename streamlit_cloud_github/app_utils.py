@@ -17,6 +17,47 @@ DISCLAIMER = (
 AIDA_ARCHIVE_START = date(2024, 9, 28)
 
 
+def validate_requested_window(
+    start_time: str,
+    end_time: str,
+    publication_safe_now: pd.Timestamp | None = None,
+) -> str | None:
+    """Return a user-facing error for an invalid or unpublished UTC window."""
+    start = pd.to_datetime(start_time, errors="coerce", utc=True)
+    end = pd.to_datetime(end_time, errors="coerce", utc=True)
+    if pd.isna(start) or pd.isna(end):
+        return "The requested analysis window is invalid."
+    if start > end:
+        return "The analysis start must be before the analysis end."
+    safe_now = publication_safe_now
+    if safe_now is None:
+        safe_now = pd.Timestamp.now(tz="UTC") - pd.Timedelta(minutes=15)
+    if end > safe_now:
+        return "The analysis end is in the unpublished future window."
+    return None
+
+
+def advisory_metadata_for_load(
+    success: bool,
+    current_sequence: int,
+    generated_time: pd.Timestamp,
+) -> dict[str, Any]:
+    """Create stable session-local advisory metadata for one load attempt."""
+    if not success:
+        return {
+            "sequence": int(current_sequence),
+            "generated_time": None,
+            "number": None,
+        }
+    sequence = int(current_sequence) + 1
+    generated = pd.Timestamp(generated_time)
+    return {
+        "sequence": sequence,
+        "generated_time": generated,
+        "number": f"{generated.year}/{sequence:03d}",
+    }
+
+
 def combine_date_time_iso(date_value: date, time_value: time) -> str:
     """Combine separate Streamlit date/time values into an ISO 8601 string."""
     return datetime.combine(date_value, time_value).strftime("%Y-%m-%dT%H:%M:%S")

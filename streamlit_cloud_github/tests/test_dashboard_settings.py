@@ -91,14 +91,34 @@ class DashboardSettingsTest(unittest.TestCase):
     def test_aida_date_inputs_use_archive_minimum(self):
         app_source = APP_PATH.read_text()
 
-        self.assertEqual(app_source.count("min_value=AIDA_ARCHIVE_START"), 2)
+        self.assertEqual(app_source.count("min_value=AIDA_ARCHIVE_START"), 1)
+        self.assertIn('"Analysis date"', app_source)
+        self.assertNotIn('"Start date"', app_source)
 
     def test_app_distinguishes_global_and_regional_risk(self):
         app_source = APP_PATH.read_text()
 
-        self.assertIn("global Kp/ap excluded", app_source)
-        self.assertIn("latest loaded AIDA state", app_source)
+        self.assertIn("Global Kp/ap are excluded", app_source)
+        self.assertIn("analysis time", app_source)
         self.assertIn('st.metric(f"Peak {variable}"', app_source)
+
+    def test_app_exposes_serene_only_icao_products(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertIn("ICAO-style SERENE-only products", app_source)
+        self.assertIn("load_icao_products", app_source)
+        self.assertIn("build_icao_summary", app_source)
+        self.assertIn("create_icao_category_map", app_source)
+        self.assertIn("Not available from SERENE", app_source)
+        self.assertIn("generate_icao_message", app_source)
+        self.assertIn("Download GNSS research message", app_source)
+        self.assertIn("Download HF COM research message", app_source)
+
+    def test_primary_forecast_uses_official_serene_products(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertNotIn("generate_risk_forecast", app_source)
+        self.assertIn("official AIDA +3h/+6h forecasts", app_source)
 
 
 if __name__ == "__main__":

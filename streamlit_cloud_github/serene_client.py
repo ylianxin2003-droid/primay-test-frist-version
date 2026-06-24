@@ -23,8 +23,21 @@ from config import (
 )
 
 KP_AP_CACHE_TTL_SECONDS = int(os.getenv("SERENE_KP_AP_CACHE_TTL", "3600"))
+AIDA_RAW_CACHE_MAX_ENTRIES = 16
+AIDA_RAW_CACHE_MAX_ENTRIES_ENV = "SERENE_AIDA_RAW_CACHE_MAX_ENTRIES"
 
 logger = logging.getLogger(__name__)
+
+
+def _aida_raw_cache_max_entries() -> int:
+    """Parse the current raw-state cache limit, falling back to its default."""
+    try:
+        return int(os.getenv(
+            AIDA_RAW_CACHE_MAX_ENTRIES_ENV,
+            str(AIDA_RAW_CACHE_MAX_ENTRIES),
+        ))
+    except ValueError:
+        return AIDA_RAW_CACHE_MAX_ENTRIES
 
 
 def normalise_aida_request_time(value: str) -> pd.Timestamp:
@@ -40,7 +53,10 @@ def normalise_aida_request_time(value: str) -> pd.Timestamp:
     return pd.to_datetime(rounded_epoch, unit="s", utc=True)
 
 
-def _safe_response_detail(response: requests.Response) -> str:
+def _safe_response_detail(
+    response: requests.Response,
+    token: str | None = None,
+) -> str:
     """Extract a short non-HTML API error without including credentials."""
     text = str(getattr(response, "text", "") or "").strip()
     if not text or text.startswith("<"):
@@ -60,11 +76,14 @@ def _safe_response_detail(response: requests.Response) -> str:
                 or body.get("message")
                 or ""
             ).strip()
+    if token:
+        text = text.replace(token, "[redacted]")
     return " ".join(text.split())[:240]
 
 # ── API Endpoints ───────────────────────────────────────────────────────────
 ENDPOINTS: dict[str, str] = {
     "aida_raw_output": "/api/download-output/",
+    "aida_raw_forecast": "/api/download-forecast/",
     "calc": "/api/calc/",
     "kp_ap": "/resources/download/Indices__Kp_ap.csv/",
     # Placeholders (not yet documented for Birmingham deployment):
@@ -99,7 +118,7 @@ class SereneClient:
     """
 
     _kp_ap_csv_cache: tuple[float, str] | None = None
-    _aida_raw_cache: dict[tuple[str, str], bytes] = {}
+    _aida_raw_cache: dict[tuple[str, str, str, str, int | None], bytes] = {}
 
     def __init__(
         self,
@@ -173,14 +192,15 @@ class SereneClient:
             logger.warning(msg)
             return False, msg, None
         except requests.exceptions.ConnectionError as exc:
+            detail = self._redact_token(str(exc))
             msg = (
                 f"Cannot connect to SERENE API at {self.base_url}. "
-                f"Check SERENE_API_BASE_URL and network. ({exc})"
+                f"Check SERENE_API_BASE_URL and network. ({detail})"
             )
             logger.warning(msg)
             return False, msg, None
         except requests.exceptions.RequestException as exc:
-            msg = f"SERENE API request failed: {exc}"
+            msg = f"SERENE API request failed: {self._redact_token(str(exc))}"
             logger.warning(msg)
             return False, msg, None
 
@@ -289,12 +309,96 @@ class SereneClient:
                 "file_type": "raw",
             }
 
-        cache_key = (cache_time, latency)
-        cached = type(self)._aida_raw_cache.get(cache_key)
+        cache_key = (self.base_url, "analysis", cache_time, latency, None)
+        cached = type(self)._get_cached_aida_raw(cache_key)
         if cached is not None:
             return True, f"Loaded cached AIDA raw state for {cache_time}.", cached
 
-        url = f"{self.base_url}{ENDPOINTS['aida_raw_output']}"
+        ok, message, content = self._request_aida_hdf5(
+            endpoint=ENDPOINTS["aida_raw_output"],
+            request_data=request_data,
+            api_name="raw-output",
+            auth_resource="AIDA raw output",
+        )
+        if not ok or content is None:
+            return False, message, None
+
+        type(self)._cache_aida_raw(cache_key, content)
+        return True, f"Downloaded AIDA raw state for {cache_time}.", content
+
+    def download_aida_forecast(
+        self,
+        requested_time: str | None,
+        latency: str,
+        period_minutes: int,
+    ) -> tuple[bool, str, bytes | None]:
+        """Download one raw AIDA forecast using the upstream v0.1.3 contract."""
+        if latency not in {"ultra", "rapid", "final"}:
+            return False, f"Unsupported AIDA latency: {latency}", None
+        if period_minutes not in {30, 90, 180, 360}:
+            return False, f"Unsupported AIDA forecast period: {period_minutes}", None
+        if requested_time is None:
+            return False, "AIDA forecasts require an explicit requested time.", None
+        if not self.base_url:
+            return False, "SERENE_API_BASE_URL is not configured.", None
+        if not self.token:
+            return False, "SERENE_API_TOKEN is not configured.", None
+
+        try:
+            parsed = normalise_aida_request_time(requested_time)
+        except ValueError as exc:
+            return False, str(exc), None
+
+        cache_time = parsed.isoformat()
+        cache_key = (
+            self.base_url,
+            "forecast",
+            cache_time,
+            latency,
+            period_minutes,
+        )
+        cached = type(self)._get_cached_aida_raw(cache_key)
+        if cached is not None:
+            return (
+                True,
+                f"Loaded cached AIDA raw forecast for {cache_time} "
+                f"({period_minutes} minutes).",
+                cached,
+            )
+
+        request_data: dict[str, Any] = {
+            "file_time": parsed.tz_convert("UTC").tz_localize(None).isoformat(),
+            "product": latency,
+            "file_type": "raw",
+            "period": period_minutes,
+        }
+        ok, message, content = self._request_aida_hdf5(
+            endpoint=ENDPOINTS["aida_raw_forecast"],
+            request_data=request_data,
+            api_name="forecast",
+            auth_resource="AIDA forecast",
+        )
+        if not ok or content is None:
+            return False, message, None
+
+        type(self)._cache_aida_raw(cache_key, content)
+        return (
+            True,
+            f"Downloaded AIDA raw forecast for {cache_time} "
+            f"({period_minutes} minutes).",
+            content,
+        )
+
+    def _request_aida_hdf5(
+        self,
+        *,
+        endpoint: str,
+        request_data: dict[str, Any],
+        api_name: str,
+        auth_resource: str,
+    ) -> tuple[bool, str, bytes | None]:
+        """Request and validate one authenticated AIDA HDF5 response."""
+        url = f"{self.base_url}{endpoint}"
         try:
             response = self._session.request(
                 method="GET",
@@ -304,18 +408,18 @@ class SereneClient:
                 timeout=self.timeout,
             )
         except requests.exceptions.RequestException as exc:
-            return False, f"SERENE AIDA raw-output request failed: {exc}", None
+            detail = self._redact_token(str(exc))
+            return False, f"SERENE AIDA {api_name} request failed: {detail}", None
 
         if response.status_code in {401, 403}:
-            return False, "SERENE rejected the API token for AIDA raw output.", None
+            return False, f"SERENE rejected the API token for {auth_resource}.", None
         if not response.ok:
-            detail = _safe_response_detail(response)
-            if self.token:
-                detail = detail.replace(self.token, "[redacted]")
+            detail = _safe_response_detail(response, token=self.token)
             suffix = f" {detail}" if detail else ""
             return (
                 False,
-                f"SERENE AIDA raw-output API returned status {response.status_code}.{suffix}",
+                f"SERENE AIDA {api_name} API returned status "
+                f"{response.status_code}.{suffix}",
                 None,
             )
 
@@ -327,10 +431,53 @@ class SereneClient:
             or "html" in content_type
             or not content.startswith(b"\x89HDF\r\n\x1a\n")
         ):
-            return False, "SERENE AIDA raw-output API returned a non-HDF5 response.", None
+            return False, f"SERENE AIDA {api_name} API returned a non-HDF5 response.", None
 
-        type(self)._aida_raw_cache[cache_key] = content
-        return True, f"Downloaded AIDA raw state for {cache_time}.", content
+        return True, "OK", content
+
+    def _redact_token(self, detail: str) -> str:
+        """Remove the configured API token from user-visible error text."""
+        if self.token:
+            return detail.replace(self.token, "[redacted]")
+        return detail
+
+    @classmethod
+    def _get_cached_aida_raw(
+        cls,
+        cache_key: tuple[str, str, str, str, int | None],
+    ) -> bytes | None:
+        """Return and promote one cached HDF5 payload."""
+        max_entries = _aida_raw_cache_max_entries()
+        if max_entries <= 0:
+            cls._aida_raw_cache.clear()
+            return None
+        while len(cls._aida_raw_cache) > max_entries:
+            oldest_key = next(iter(cls._aida_raw_cache))
+            del cls._aida_raw_cache[oldest_key]
+
+        cached = cls._aida_raw_cache.pop(cache_key, None)
+        if cached is not None:
+            cls._aida_raw_cache[cache_key] = cached
+        return cached
+
+    @classmethod
+    def _cache_aida_raw(
+        cls,
+        cache_key: tuple[str, str, str, str, int | None],
+        content: bytes,
+    ) -> None:
+        """Insert one payload and evict least-recently-used entries."""
+        max_entries = _aida_raw_cache_max_entries()
+
+        if max_entries <= 0:
+            cls._aida_raw_cache.clear()
+            return
+
+        cls._aida_raw_cache.pop(cache_key, None)
+        cls._aida_raw_cache[cache_key] = content
+        while len(cls._aida_raw_cache) > max_entries:
+            oldest_key = next(iter(cls._aida_raw_cache))
+            del cls._aida_raw_cache[oldest_key]
 
     def fetch_available_models(self) -> tuple[bool, str, list[str]]:
         """List models exposed by the API.
@@ -455,7 +602,7 @@ class SereneClient:
                 timeout=self.timeout,
             )
         except requests.exceptions.RequestException as exc:
-            msg = f"SERENE resource request failed: {exc}"
+            msg = f"SERENE resource request failed: {self._redact_token(str(exc))}"
             logger.warning(msg)
             return False, msg, None
 

@@ -9,25 +9,28 @@ import pandas as pd
 import streamlit as st
 
 from aida_grid import estimate_target_points
-from alert_engine import DISCLAIMER, generate_alerts, generate_overall_risk
 from app_utils import (
     AIDA_ARCHIVE_START,
+    advisory_metadata_for_load,
     build_data_preview,
     combine_date_time_iso,
     default_time_range,
-    generate_historical_risk_alerts,
     historical_risk_windows,
     mappable_variable_options,
     parse_select_range_to_widgets,
+    validate_requested_window,
 )
 from config import SERENE_API_TOKEN, reload_config, validate_config
-from data_loader import LoadStatus, load_data
-from forecast_engine import FORECAST_HORIZONS, forecast_summary, generate_risk_forecast
-from forecast_visualisation import create_risk_forecast_map
+from data_loader import IcaoProductBundle, LoadStatus, load_icao_products
+from icao_message import generate_icao_message
+from icao_risk import (
+    build_categorical_cells,
+    build_icao_summary,
+    unavailable_indicator_rows,
+)
+from icao_visualisation import create_icao_category_map
 from serene_client import SereneClient
 from visualisation import (
-    create_alert_summary,
-    create_alert_timeline,
     create_map_plot,
     create_time_series_plot,
 )
@@ -50,7 +53,11 @@ def _init_state() -> None:
         "data": pd.DataFrame(),
         "status": LoadStatus(),
         "alerts": pd.DataFrame(),
-        "forecast": pd.DataFrame(),
+        "icao_bundle": IcaoProductBundle(),
+        "icao_summary": pd.DataFrame(),
+        "advisory_sequence": 0,
+        "advisory_generated_time": None,
+        "advisory_number": None,
         "api_connected": None,
         "api_message": "Not tested yet.",
         "config_warnings": validate_config(),
@@ -87,58 +94,41 @@ def _render_sidebar() -> dict:
     params["model"] = "AIDA"
     st.sidebar.caption("Verified model: AIDA")
 
-    default_start, default_end = default_time_range()
-    for key in ("start_date", "end_date"):
-        selected_date = st.session_state.get(key)
-        if selected_date is not None and selected_date < AIDA_ARCHIVE_START:
-            st.session_state[key] = AIDA_ARCHIVE_START
-    st.sidebar.markdown("#### Time range")
+    _default_start, default_end = default_time_range()
+    selected_date = st.session_state.get("end_date")
+    if selected_date is not None and selected_date < AIDA_ARCHIVE_START:
+        st.session_state.end_date = AIDA_ARCHIVE_START
+    st.sidebar.markdown("#### Analysis time")
     st.sidebar.caption("Default end time is 15 minutes behind UTC to allow AIDA publication.")
+    st.sidebar.caption(
+        "The selected analysis time anchors the product; its preceding "
+        "three-hour window is loaded automatically."
+    )
     st.sidebar.caption("AIDA regional archive begins at 2024-09-28 00:00 UTC.")
 
-    start_date_col, start_time_col = st.sidebar.columns(2)
-    with start_date_col:
-        start_date = st.date_input(
-            "Start date",
-            value=default_start.date(),
-            min_value=AIDA_ARCHIVE_START,
-            key="start_date",
-        )
-    with start_time_col:
-        start_clock = st.time_input(
-            "Start time",
-            value=default_start.time(),
-            step=timedelta(minutes=1),
-            key="start_time_clock",
-        )
-
-    end_date_col, end_time_col = st.sidebar.columns(2)
-    with end_date_col:
+    analysis_date_col, analysis_time_col = st.sidebar.columns(2)
+    with analysis_date_col:
         end_date = st.date_input(
-            "End date",
+            "Analysis date",
             value=default_end.date(),
             min_value=AIDA_ARCHIVE_START,
             key="end_date",
         )
-    with end_time_col:
+    with analysis_time_col:
         end_clock = st.time_input(
-            "End time",
+            "Analysis time UTC",
             value=default_end.time(),
             step=timedelta(minutes=1),
             key="end_time_clock",
         )
 
-    params["start_time"] = combine_date_time_iso(start_date, start_clock)
     params["end_time"] = combine_date_time_iso(end_date, end_clock)
-    st.sidebar.caption(f"ISO range: {params['start_time']} to {params['end_time']}")
-
-    avail_vars = ["TEC", "foF2", "MUF3000F2", "NmF2", "hmF2"]
-    selected_vars = st.sidebar.multiselect(
-        "Variable selection",
-        options=avail_vars,
-        default=["TEC"],
-    )
-    params["variables"] = selected_vars or None
+    params["start_time"] = (
+        pd.Timestamp(params["end_time"]) - pd.Timedelta(hours=3)
+    ).isoformat()
+    params["variables"] = ["TEC", "MUF3000F2"]
+    st.sidebar.caption(f"Analysis ISO time: {params['end_time']}")
+    st.sidebar.caption("Fixed ICAO inputs: TEC and MUF3000F2 from SERENE AIDA.")
 
     st.sidebar.markdown("#### Region selection")
     with st.sidebar.expander("Bounding box and grid step", expanded=True):
@@ -190,42 +180,68 @@ def _do_load(params: dict) -> None:
     progress_bar = st.progress(0.0, text="Preparing...")
     progress_state = {"done": 0, "total": 1}
 
-    def _on_api_progress(done: int, total: int) -> None:
+    def _on_api_progress(done: int, total: int, label: str = "AIDA data") -> None:
         progress_state["done"] = done
         progress_state["total"] = max(total, 1)
         progress_bar.progress(
             done / progress_state["total"],
-            text=f"AIDA raw dataset {done}/{total}...",
+            text=f"{label}: {done}/{total}...",
         )
 
+    cleared = advisory_metadata_for_load(
+        False,
+        st.session_state.advisory_sequence,
+        pd.Timestamp.now(tz="UTC"),
+    )
+    st.session_state.advisory_generated_time = cleared["generated_time"]
+    st.session_state.advisory_number = cleared["number"]
+
     try:
-        df, status = load_data(
-            source=params["source"],
-            model=params["model"],
-            start_time=params.get("start_time"),
-            end_time=params.get("end_time"),
-            variables=params.get("variables"),
+        validation_error = validate_requested_window(
+            params["start_time"], params["end_time"]
+        )
+        if validation_error:
+            failed_status = LoadStatus(
+                source="none", ok=False, message=validation_error
+            )
+            st.session_state.data = pd.DataFrame()
+            st.session_state.status = failed_status
+            st.session_state.icao_bundle = IcaoProductBundle(status=failed_status)
+            st.session_state.icao_summary = pd.DataFrame()
+            return
+        bundle = load_icao_products(
+            analysis_time=params["end_time"],
+            variables=["TEC", "MUF3000F2"],
             region=params.get("region"),
             grid_step=params.get("grid_step", 5.0),
             progress_callback=_on_api_progress,
         )
-        progress_bar.progress(1.0, text="Generating advisories and forecasts...")
-        st.session_state.data = df
-        st.session_state.status = status
-
-        data_alerts = generate_alerts(df) if not df.empty else pd.DataFrame()
-        has_serene_indices = (
-            not df.empty
-            and "variable" in df.columns
-            and df["variable"].isin(["Kp", "ap"]).any()
+        progress_bar.progress(1.0, text="Generating ICAO-style research products...")
+        latest = pd.DataFrame()
+        if not bundle.products.empty:
+            latest = bundle.products[
+                bundle.products["product_kind"] == "analysis"
+            ].copy()
+        frames = [frame for frame in (latest, bundle.indices) if not frame.empty]
+        st.session_state.data = (
+            pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         )
-        historical_alerts = (
-            pd.DataFrame()
-            if has_serene_indices
-            else generate_historical_risk_alerts(params.get("start_time"), params.get("end_time"))
+        st.session_state.status = bundle.status
+        st.session_state.icao_bundle = bundle
+        st.session_state.icao_summary = build_icao_summary(
+            bundle.products,
+            bundle.indices,
+            eligible=bundle.kp_storm_eligible,
         )
-        st.session_state.alerts = pd.concat([data_alerts, historical_alerts], ignore_index=True)
-        st.session_state.forecast = generate_risk_forecast(df) if not df.empty else pd.DataFrame()
+        if bundle.status.ok:
+            generated = pd.Timestamp.now(tz="UTC")
+            advisory = advisory_metadata_for_load(
+                True, st.session_state.advisory_sequence, generated
+            )
+            st.session_state.advisory_sequence = advisory["sequence"]
+            st.session_state.advisory_generated_time = advisory["generated_time"]
+            st.session_state.advisory_number = advisory["number"]
+        st.session_state.alerts = pd.DataFrame()
     finally:
         progress_bar.empty()
 
@@ -280,7 +296,9 @@ def _render_connection_panel() -> None:
     with c4:
         st.metric(
             "AIDA raw datasets downloaded",
-            int(status.metadata.get("aida_dataset_downloads", 0)),
+            int(status.metadata.get("aida_dataset_downloads", 0))
+            + int(status.metadata.get("analysis_downloads", 0))
+            + int(status.metadata.get("forecast_downloads", 0)),
         )
     with c5:
         st.metric(
@@ -322,106 +340,159 @@ def _render_empty_state() -> None:
         "the official AIDA package; all requested map points are calculated locally. "
         "No local sample dataset is used."
     )
-    st.subheader("Risk forecast map")
+    st.subheader("ICAO-style SERENE-only products")
     st.info(
-        "Forecast risk maps will appear here after SERENE API samples are loaded. "
-        "The forecast uses the current API response only."
+        "The category map, summary table, and research messages appear after "
+        "SERENE analysis and official forecast products are loaded."
     )
     with st.expander("Quick start"):
         st.markdown(
             """
             1. Configure SERENE_API_BASE_URL and SERENE_API_TOKEN.
             2. Test the SERENE API connection.
-            3. Load API data for a selected region and time range.
-            4. Use the risk forecast map to inspect storm-like risk areas.
+            3. Load API data for an analysis time and selected region.
+            4. Inspect Latest, Max-3h, +3h, and +6h products.
             """
         )
 
 
-def _render_alerts(alerts: pd.DataFrame) -> None:
-    st.subheader("ICAO-style prototype risk advisories")
-    overall, summary = generate_overall_risk(alerts)
-    st.metric("Loaded-sample peak advisory risk", overall)
-    st.caption(summary)
-    st.caption(DISCLAIMER)
-
-    if alerts.empty:
-        st.success("No active prototype advisories. Parameters are within normal range.")
-        return
-
-    if overall in {"G5 Extreme", "G4 Severe", "Severe"}:
-        st.error(f"Selected-range prototype warning: {overall}")
+def _render_icao_products(params: dict) -> None:
+    """Render the primary SERENE-only ICAO-style research products."""
+    bundle: IcaoProductBundle = st.session_state.icao_bundle
+    summary = st.session_state.icao_summary
+    st.subheader("ICAO-style SERENE-only products")
+    st.caption(
+        "Latest and Max-3h values use SERENE AIDA analyses; prediction columns "
+        "use official AIDA +3h/+6h forecasts. Spatial values are regional maxima."
+    )
+    st.caption(
+        "Categories use ICAO thresholds: TEC 125/175 TECU, auroral absorption "
+        "proxy Kp 8/9, and PSD 30%/50% with a prior-96h Kp≥6 eligibility gate."
+    )
+    if bundle.kp_storm_eligible is None:
+        st.warning("PSD status unavailable: complete 96-hour SERENE Kp history is missing.")
+    elif bundle.kp_storm_eligible:
+        st.info("PSD storm gate active: SERENE Kp reached at least 6 in the prior 96 hours.")
     else:
-        st.warning(f"Selected-range prototype advisory: {overall}")
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.plotly_chart(create_alert_summary(alerts), width="stretch")
-    with col_b:
-        st.plotly_chart(create_alert_timeline(alerts), width="stretch")
-
-    show_cols = [
-        c
-        for c in (
-            "timestamp",
-            "region",
-            "alert_type",
-            "risk_level",
-            "reason",
-            "possible_aviation_impact",
-            "interpretation",
-        )
-        if c in alerts.columns
-    ]
-    st.dataframe(alerts[show_cols], width="stretch", height=220)
-
-
-def _render_forecast() -> None:
-    forecast = st.session_state.forecast
-    st.subheader("Regional ionospheric risk forecast")
-    forecast_level, forecast_message = forecast_summary(forecast)
-    st.metric("Regional forecast highest risk", forecast_level)
-    st.caption(forecast_message)
-    st.caption(
-        "Regional map only — global Kp/ap excluded. "
-        "‘Now’ means the latest loaded AIDA state, which may be a historical time "
-        "rather than the present clock time."
-    )
-    st.caption(
-        "Prototype note: absolute TEC is an illustrative proxy. TEC gradients, "
-        "anomalies, variability, and scintillation are more directly related to GNSS degradation."
-    )
-
-    if forecast.empty:
-        st.info("No mappable forecast risk data is available for the current API response.")
+        st.info("PSD storm gate inactive: SERENE Kp remained below 6 in the prior 96 hours.")
+    if summary.empty:
+        st.info("Load SERENE data to create the ICAO-style table and maps.")
         return
 
-    horizon_options = [label for label, _hours in FORECAST_HORIZONS]
-    selected_horizon = st.radio("Forecast horizon", horizon_options, horizontal=True)
+    st.dataframe(summary, width="stretch", hide_index=True)
+
+    indicator = st.selectbox(
+        "Categorical regional indicator",
+        ["Vertical TEC", "Post-storm depression"],
+    )
+    horizon = st.radio(
+        "Official product horizon",
+        ["Latest", "+3h", "+6h"],
+        horizontal=True,
+    )
+    cells = build_categorical_cells(
+        bundle.products,
+        indicator,
+        horizon,
+        kp_storm_eligible=bundle.kp_storm_eligible,
+    )
     st.plotly_chart(
-        create_risk_forecast_map(
-            forecast,
-            horizon=selected_horizon,
-            title=(
-                f"Regional ionospheric risk ({selected_horizon}) — "
-                "global Kp/ap excluded"
-            ),
-        ),
+        create_icao_category_map(cells, f"{indicator} — {horizon}"),
         width="stretch",
     )
+    st.caption("Global Kp/ap are excluded from regional map cells.")
 
-    forecast_cols = [
-        "horizon",
-        "lat",
-        "lon",
-        "risk_level",
-        "risk_probability",
-        "confidence",
-        "driver",
-        "predicted_value",
-        "explanation",
-    ]
-    st.dataframe(forecast[forecast_cols].head(100), width="stretch", height=260)
+    st.markdown("#### Indicators unavailable from the SERENE-only source")
+    unavailable = unavailable_indicator_rows()
+    st.dataframe(unavailable, width="stretch", hide_index=True)
+    st.caption("Not available from SERENE means no zero or OK value is fabricated.")
+
+    if bundle.status.ok:
+        _render_research_messages(summary, params)
+    else:
+        st.info("Research messages require a successful SERENE AIDA analysis state.")
+
+
+def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
+    st.markdown("#### Automated text-based SWX research messages")
+    analysis_time = st.session_state.status.metadata.get(
+        "analysis_time", params["end_time"]
+    )
+    generated_time = (
+        st.session_state.advisory_generated_time or pd.Timestamp.now(tz="UTC")
+    )
+    advisory_number = st.session_state.advisory_number or f"{generated_time.year}/001"
+    loaded_region = st.session_state.status.metadata.get(
+        "loaded_region", params["region"]
+    )
+    tec = _summary_row(summary, "Vertical TEC")
+    psd = _summary_row(summary, "Post-storm depression")
+    kp = _summary_row(summary, "Kp auroral absorption proxy")
+
+    if tec is not None and tec["Status"] in {"OK", "MODERATE", "SEVERE"}:
+        gnss = generate_icao_message(
+            effect="GNSS",
+            observed_time=analysis_time,
+            observed_category=tec["Status"],
+            region=loaded_region,
+            forecasts={
+                180: _available_category(tec["+3h status"]),
+                360: _available_category(tec["+6h status"]),
+            },
+            generated_time=generated_time,
+            advisory_number=advisory_number,
+        )
+        st.code(gnss, language="text")
+        st.download_button(
+            "Download GNSS research message",
+            data=gnss,
+            file_name="serene_gnss_research_advisory.txt",
+            mime="text/plain",
+        )
+    else:
+        st.info("GNSS research message unavailable because SERENE TEC is unavailable.")
+
+    hf_observed = _worst_available_category([
+        psd["Status"] if psd is not None else None,
+        kp["Status"] if kp is not None else None,
+    ])
+    if hf_observed is None:
+        st.info("HF COM research message unavailable because SERENE inputs are unavailable.")
+        return
+    hf = generate_icao_message(
+        effect="HF COM",
+        observed_time=analysis_time,
+        observed_category=hf_observed,
+        region=loaded_region,
+        forecasts={
+            180: _available_category(psd["+3h status"]) if psd is not None else None,
+            360: _available_category(psd["+6h status"]) if psd is not None else None,
+        },
+        generated_time=generated_time,
+        advisory_number=advisory_number,
+    )
+    st.code(hf, language="text")
+    st.download_button(
+        "Download HF COM research message",
+        data=hf,
+        file_name="serene_hf_com_research_advisory.txt",
+        mime="text/plain",
+    )
+
+
+def _summary_row(summary: pd.DataFrame, indicator: str) -> pd.Series | None:
+    rows = summary[summary["Indicator"] == indicator]
+    return None if rows.empty else rows.iloc[0]
+
+
+def _available_category(value: object) -> str | None:
+    return str(value) if value in {"OK", "MODERATE", "SEVERE"} else None
+
+
+def _worst_available_category(values: list[object]) -> str | None:
+    priority = {"OK": 0, "MODERATE": 1, "SEVERE": 2}
+    available = [str(value) for value in values if value in priority]
+    return max(available, key=priority.get) if available else None
 
 
 def _render_data_views(df: pd.DataFrame, alerts: pd.DataFrame) -> None:
@@ -487,35 +558,35 @@ def _render_global_indices(df: pd.DataFrame) -> None:
     st.plotly_chart(create_time_series_plot(global_indices), width="stretch")
 
 
-def _render_main() -> None:
+def _render_main(params: dict) -> None:
     st.title("Aviation Space Weather Dashboard")
-    st.caption("SERENE API-only monitoring with weather-style risk forecasting.")
+    st.caption("SERENE-only ICAO-style research monitoring and official AIDA forecasts.")
 
     _render_cloud_api_hint()
     _render_connection_panel()
     _render_historical_windows()
     st.markdown("---")
 
-    if st.session_state.data.empty:
+    bundle: IcaoProductBundle = st.session_state.icao_bundle
+    if st.session_state.data.empty and bundle.products.empty:
         _render_empty_state()
         return
 
     df = st.session_state.data
     alerts = st.session_state.alerts
+    _render_icao_products(params)
+    st.markdown("---")
     _render_global_indices(df)
     st.markdown("---")
-    _render_alerts(alerts)
-    st.markdown("---")
-    _render_forecast()
-    st.markdown("---")
-    _render_data_views(df, alerts)
+    if not df.empty:
+        _render_data_views(df, alerts)
 
 
 def main() -> None:
     _init_state()
     _apply_pending_time_range()
-    _render_sidebar()
-    _render_main()
+    params = _render_sidebar()
+    _render_main(params)
 
 
 if __name__ == "__main__":
