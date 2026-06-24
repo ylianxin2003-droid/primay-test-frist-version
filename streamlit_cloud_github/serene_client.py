@@ -415,11 +415,12 @@ class SereneClient:
             return False, f"SERENE rejected the API token for {auth_resource}.", None
         if not response.ok:
             detail = _safe_response_detail(response, token=self.token)
+            request_detail = _describe_aida_request(request_data)
             suffix = f" {detail}" if detail else ""
             return (
                 False,
                 f"SERENE AIDA {api_name} API returned status "
-                f"{response.status_code}.{suffix}",
+                f"{response.status_code} for {request_detail}.{suffix}",
                 None,
             )
 
@@ -687,6 +688,23 @@ class SereneClient:
 
 
 # ── Internal helpers ────────────────────────────────────────────────────────
+
+
+def _describe_aida_request(request_data: dict[str, Any]) -> str:
+    """Return a concise, credential-free description of one AIDA request."""
+    product = request_data.get("product", "unknown")
+    file_type = request_data.get("file_type", "unknown")
+    if request_data.get("latest"):
+        time_label = "latest"
+    else:
+        time_label = request_data.get("file_time", "unknown time")
+    period = request_data.get("period")
+    if period is None:
+        return f"product={product}, file_type={file_type}, file_time={time_label}"
+    return (
+        f"product={product}, file_type={file_type}, "
+        f"file_time={time_label}, forecast_period={period} min"
+    )
 
 
 def _extract_string_list(data: Any, keys: tuple[str, ...]) -> list[str]:
