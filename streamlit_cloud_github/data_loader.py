@@ -256,7 +256,15 @@ def load_icao_products(
 
 
 def _aida_latency(requested: pd.Timestamp) -> str:
-    return "final" if requested.year < pd.Timestamp.now(tz="UTC").year else "ultra"
+    """Choose an AIDA product suitable for five-minute map requests.
+
+    SERENE lists the ``final`` AIDA product as a daily product, while this
+    dashboard requests specific five-minute states and official forecast files.
+    Forecast downloads only support ultra-rapid/rapid products, so historical
+    testing uses rapid rather than final to avoid invalid ``product=final``
+    forecast requests and missing five-minute final raw files.
+    """
+    return "ultra" if requested.year == pd.Timestamp.now(tz="UTC").year else "rapid"
 
 
 def _calculate_product_frame(
@@ -419,14 +427,13 @@ def load_data(
     if not requested_times:
         request_specs = [(None, "ultra")]
     else:
-        current_year = pd.Timestamp.now(tz="UTC").year
         for value in requested_times:
             try:
                 parsed = normalise_aida_request_time(value)
             except ValueError:
                 warnings.append(f"Invalid requested AIDA time: {value}")
                 continue
-            latency = "final" if parsed.year < current_year else "ultra"
+            latency = _aida_latency(parsed)
             request_specs.append((parsed.isoformat(), latency))
         request_specs = list(dict.fromkeys(request_specs))
 
