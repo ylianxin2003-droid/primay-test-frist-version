@@ -77,12 +77,12 @@ class IcaoRiskTest(unittest.TestCase):
         from icao_risk import build_categorical_cells
 
         products = pd.DataFrame([
-            {"indicator": "Post-storm depression", "horizon": "+6h", "lat": 50, "lon": 1, "reference": 100, "current": 40},
+            {"indicator": "Post-Storm Depression", "horizon": "+6h", "lat": 50, "lon": 1, "reference": 100, "current": 40},
         ])
 
-        gated = build_categorical_cells(products, "Post-storm depression", "+6h")
+        gated = build_categorical_cells(products, "Post-Storm Depression", "+6h")
         eligible = build_categorical_cells(
-            products, "Post-storm depression", "+6h", kp_storm_eligible=True
+            products, "Post-Storm Depression", "+6h", kp_storm_eligible=True
         )
 
         self.assertEqual(gated.iloc[0]["display_value"], 60.0)
@@ -150,17 +150,17 @@ class IcaoRiskTest(unittest.TestCase):
 
         summary = build_icao_summary(products, indices, eligible=False)
         tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
-        kp = summary.loc[summary["Indicator"] == "Kp auroral absorption proxy"].iloc[0]
+        kp = summary.loc[summary["Indicator"] == "Auroral Absorption"].iloc[0]
 
         self.assertEqual(tec["Latest value"], 180)
         self.assertEqual(tec["Status"], "SEVERE")
-        self.assertEqual(tec["Max 3h"], 160)
+        self.assertEqual(tec["Max-3h value"], 160)
         self.assertEqual(tec["Max-3h status"], "MODERATE")
         self.assertEqual(tec["+6h forecast"], "N/A")
-        self.assertEqual(tec["+6h status"], "N/A")
+        self.assertEqual(tec["+6h status"], "UNAVAILABLE")
         self.assertEqual(kp["Latest value"], 8.5)
         self.assertEqual(kp["Status"], "MODERATE")
-        self.assertEqual(kp["Max 3h"], 8.5)
+        self.assertEqual(kp["Max-3h value"], 8.5)
         self.assertEqual(kp["Max-3h status"], "MODERATE")
         self.assertEqual(kp["+3h forecast"], "N/A")
         self.assertEqual(kp["+6h forecast"], "N/A")
@@ -178,7 +178,7 @@ class IcaoRiskTest(unittest.TestCase):
         tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
 
         self.assertEqual(tec["Latest value"], 150)
-        self.assertEqual(tec["Latest time UTC"], "2026-06-24 12:00 UTC")
+        self.assertEqual(tec["Time UTC"], "2026-06-24 12:00 UTC")
 
     def test_kp_max3h_is_inclusive_window_ending_at_latest_kp(self):
         from icao_risk import build_icao_summary
@@ -191,10 +191,10 @@ class IcaoRiskTest(unittest.TestCase):
         ])
 
         summary = build_icao_summary(pd.DataFrame(), indices, eligible=False)
-        kp = summary.loc[summary["Indicator"] == "Kp auroral absorption proxy"].iloc[0]
+        kp = summary.loc[summary["Indicator"] == "Auroral Absorption"].iloc[0]
 
         self.assertEqual(kp["Latest value"], 8.5)
-        self.assertEqual(kp["Max 3h"], 9.0)
+        self.assertEqual(kp["Max-3h value"], 9.0)
         self.assertEqual(kp["Max-3h status"], "SEVERE")
         self.assertEqual(kp["+3h forecast"], "N/A")
         self.assertEqual(kp["+6h forecast"], "N/A")
@@ -207,14 +207,16 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(
             list(rows["Indicator"]),
             [
-                "Amplitude scintillation S4",
-                "Phase scintillation sigma-phi",
-                "Polar-cap absorption",
-                "Shortwave fadeout",
+                "Amplitude Scintillation",
+                "Phase Scintillation",
+                "Polar Cap Absorption",
+                "Shortwave Fadeout",
+                "Effective Dose FL <= 460",
+                "Effective Dose FL > 460",
             ],
         )
         self.assertTrue(
-            (rows["Availability"] == "Not available from SERENE").all()
+            (rows["Source / Availability"].str.contains("Not available from SERENE")).all()
         )
 
     def test_loader_product_kind_and_variables_map_to_icao_products(self):
@@ -229,14 +231,14 @@ class IcaoRiskTest(unittest.TestCase):
 
         tec_forecast = build_categorical_cells(products, "Vertical TEC", "+3h")
         psd_latest = build_categorical_cells(
-            products, "Post-storm depression", "Latest", kp_storm_eligible=True
+            products, "Post-Storm Depression", "Latest", kp_storm_eligible=True
         )
         summary = build_icao_summary(products, pd.DataFrame(), eligible=True)
         tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
 
         self.assertEqual(tec_forecast.iloc[0]["category"], "MODERATE")
         self.assertEqual(psd_latest.iloc[0]["category"], "MODERATE")
-        self.assertEqual(tec["Max 3h"], 180)
+        self.assertEqual(tec["Max-3h value"], 180)
         self.assertEqual(tec["+3h forecast"], 150)
 
     def test_missing_psd_baseline_never_treats_muf_mhz_as_percent(self):
@@ -255,15 +257,111 @@ class IcaoRiskTest(unittest.TestCase):
         }])
 
         cells = build_categorical_cells(
-            products, "Post-storm depression", "Latest", kp_storm_eligible=True
+            products, "Post-Storm Depression", "Latest", kp_storm_eligible=True
         )
         summary = build_icao_summary(products, pd.DataFrame(), eligible=True)
-        psd = summary.loc[summary["Indicator"] == "Post-storm depression"].iloc[0]
+        psd = summary.loc[summary["Indicator"] == "Post-Storm Depression"].iloc[0]
 
         self.assertEqual(cells.iloc[0]["display_value"], "N/A")
         self.assertEqual(cells.iloc[0]["category"], "UNAVAILABLE")
         self.assertEqual(psd["Latest value"], "N/A")
-        self.assertEqual(psd["Status"], "N/A")
+        self.assertEqual(psd["Status"], "UNAVAILABLE")
+
+    def test_summary_table_contains_all_pecasus_indicators_and_no_fake_ok(self):
+        from icao_risk import build_icao_summary
+
+        products = pd.DataFrame([
+            {
+                "variable": "TEC",
+                "product_kind": "analysis",
+                "time": "2026-06-24T12:00:00Z",
+                "lat": 50,
+                "lon": 1,
+                "value": 130,
+                "source": "SERENE AIDA TEC",
+            },
+            {
+                "variable": "MUF3000F2",
+                "product_kind": "analysis",
+                "time": "2026-06-24T12:00:00Z",
+                "lat": 50,
+                "lon": 1,
+                "value": 8,
+                "psd_percent": 35,
+                "source": "SERENE AIDA MUF3000F2",
+            },
+        ])
+        indices = pd.DataFrame([
+            {
+                "variable": "Kp",
+                "time": "2026-06-24T12:00:00Z",
+                "value": 8.2,
+                "source": "SERENE Kp/ap",
+            }
+        ])
+
+        summary = build_icao_summary(products, indices, eligible=True)
+
+        self.assertEqual(list(summary.columns), [
+            "Domain",
+            "Indicator",
+            "Moderate threshold",
+            "Severe threshold",
+            "Time UTC",
+            "Latest value",
+            "Status",
+            "Alert",
+            "Max-3h value",
+            "Max-3h status",
+            "+3h forecast",
+            "+3h status",
+            "+6h forecast",
+            "+6h status",
+            "Source / Availability",
+        ])
+        self.assertEqual(set(summary["Indicator"]), {
+            "Amplitude Scintillation",
+            "Phase Scintillation",
+            "Vertical TEC",
+            "Auroral Absorption",
+            "Polar Cap Absorption",
+            "Shortwave Fadeout",
+            "Post-Storm Depression",
+            "Effective Dose FL <= 460",
+            "Effective Dose FL > 460",
+        })
+        scint = summary.loc[summary["Indicator"] == "Amplitude Scintillation"].iloc[0]
+        radiation = summary.loc[summary["Indicator"] == "Effective Dose FL > 460"].iloc[0]
+        tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
+        psd = summary.loc[summary["Indicator"] == "Post-Storm Depression"].iloc[0]
+        kp = summary.loc[summary["Indicator"] == "Auroral Absorption"].iloc[0]
+
+        self.assertEqual(scint["Status"], "UNAVAILABLE")
+        self.assertEqual(scint["Latest value"], "N/A")
+        self.assertIn("not available", scint["Source / Availability"].lower())
+        self.assertEqual(radiation["Status"], "UNAVAILABLE")
+        self.assertEqual(tec["Status"], "MODERATE")
+        self.assertEqual(psd["Status"], "MODERATE")
+        self.assertEqual(kp["Status"], "MODERATE")
+        self.assertEqual(kp["+3h status"], "UNAVAILABLE")
+
+    def test_overall_risk_cards_use_worst_available_status(self):
+        from icao_risk import build_overall_risk_cards
+
+        summary = pd.DataFrame([
+            {"Domain": "GNSS", "Status": "UNAVAILABLE"},
+            {"Domain": "GNSS", "Status": "MODERATE"},
+            {"Domain": "HF COM", "Status": "OK"},
+            {"Domain": "HF COM", "Status": "SEVERE"},
+            {"Domain": "Radiation", "Status": "UNAVAILABLE"},
+        ])
+
+        cards = build_overall_risk_cards(summary)
+
+        self.assertEqual(cards["GNSS Risk"], "MODERATE")
+        self.assertEqual(cards["HF COM Risk"], "SEVERE")
+        self.assertEqual(cards["Radiation Risk"], "UNAVAILABLE")
+        self.assertEqual(cards["Overall Risk"], "SEVERE")
 
 
 if __name__ == "__main__":

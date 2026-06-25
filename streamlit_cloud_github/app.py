@@ -24,9 +24,10 @@ from config import SERENE_API_TOKEN, reload_config, validate_config
 from data_loader import IcaoProductBundle, LoadStatus, load_icao_products
 from icao_message import generate_icao_message
 from icao_risk import (
+    ICAO_COLORS,
     build_categorical_cells,
     build_icao_summary,
-    unavailable_indicator_rows,
+    build_overall_risk_cards,
 )
 from icao_visualisation import create_icao_category_map
 from serene_client import SereneClient
@@ -78,6 +79,39 @@ def _render_cloud_api_hint() -> None:
     )
 
 
+def _inject_dashboard_css() -> None:
+    """Add compact operational-style visual treatment without external assets."""
+    st.markdown(
+        """
+        <style>
+        .risk-card {
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 10px;
+            padding: 0.85rem 1rem;
+            background: #111827;
+            min-height: 94px;
+        }
+        .risk-card-label {
+            color: #cbd5e1;
+            font-size: 0.84rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .risk-card-status {
+            font-size: 1.65rem;
+            font-weight: 700;
+            line-height: 1.25;
+        }
+        .risk-card-ok {border-left: 7px solid #2E7D32;}
+        .risk-card-moderate {border-left: 7px solid #F9A825;}
+        .risk-card-severe {border-left: 7px solid #C62828;}
+        .risk-card-unavailable {border-left: 7px solid #95A5A6;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_sidebar() -> dict:
     st.sidebar.markdown("# SERENE AIDA")
     st.sidebar.markdown("*Aviation Space Weather Monitor*")
@@ -93,6 +127,25 @@ def _render_sidebar() -> dict:
     st.sidebar.info("Data source: SERENE API")
     params["model"] = "AIDA"
     st.sidebar.caption("Verified model: AIDA")
+
+    st.sidebar.markdown("#### Dashboard mode")
+    mode = st.sidebar.radio(
+        "Mode",
+        ["Quick Demo", "Full ICAO-style mode"],
+        index=0,
+        help=(
+            "Quick Demo loads the latest analysis and +3h/+6h official forecasts. "
+            "Full ICAO-style mode also loads the 3-hour observation window and "
+            "30-day MUF3000F2 baseline for PSD."
+        ),
+    )
+    params["mode"] = mode
+    params["include_three_hour_window"] = mode == "Full ICAO-style mode"
+    params["include_psd_baseline"] = mode == "Full ICAO-style mode"
+    if mode == "Quick Demo":
+        st.sidebar.caption("Fast mode: skips Max-3h window and PSD baseline.")
+    else:
+        st.sidebar.caption("Full mode: attempts Max-3h and 30-day PSD baseline.")
 
     _default_start, default_end = default_time_range()
     selected_date = st.session_state.get("end_date")
@@ -129,6 +182,26 @@ def _render_sidebar() -> dict:
     params["variables"] = ["TEC", "MUF3000F2"]
     st.sidebar.caption(f"Analysis ISO time: {params['end_time']}")
     st.sidebar.caption("Fixed ICAO inputs: TEC and MUF3000F2 from SERENE AIDA.")
+
+    with st.sidebar.expander("Demo / validation storm windows", expanded=False):
+        st.caption(
+            "These windows are only shortcuts for testing historical storm-like "
+            "periods and for pretending the dashboard is running in the past."
+        )
+        windows = historical_risk_windows()
+        selection = st.dataframe(
+            windows,
+            width="stretch",
+            hide_index=True,
+            height=220,
+            selection_mode="single-row",
+            on_select="rerun",
+        )
+        if isinstance(selection, dict):
+            selected_rows = selection.get("selection", {}).get("rows", [])
+        else:
+            selected_rows = getattr(getattr(selection, "selection", None), "rows", [])
+        _apply_selected_historical_range(selected_rows, windows)
 
     st.sidebar.markdown("#### Region selection")
     with st.sidebar.expander("Bounding box and grid step", expanded=True):
@@ -214,6 +287,8 @@ def _do_load(params: dict) -> None:
             variables=["TEC", "MUF3000F2"],
             region=params.get("region"),
             grid_step=params.get("grid_step", 5.0),
+            include_three_hour_window=params.get("include_three_hour_window", True),
+            include_psd_baseline=params.get("include_psd_baseline", True),
             progress_callback=_on_api_progress,
         )
         progress_bar.progress(1.0, text="Generating ICAO-style research products...")
@@ -315,8 +390,8 @@ def _render_connection_panel() -> None:
         st.warning(warn)
 
 
-def _render_historical_windows() -> None:
-    st.subheader("Historical risk windows")
+def _render_demo_validation_windows() -> None:
+    st.subheader("Demo / validation storm windows")
     windows = historical_risk_windows()
     selection = st.dataframe(
         windows,
@@ -356,40 +431,91 @@ def _render_empty_state() -> None:
         )
 
 
-def _render_icao_products(params: dict) -> None:
-    """Render the primary SERENE-only ICAO-style research products."""
-    bundle: IcaoProductBundle = st.session_state.icao_bundle
+def _render_overall_risk_cards(summary: pd.DataFrame) -> None:
+    st.subheader("Overall risk status")
+    cards = build_overall_risk_cards(summary)
+    columns = st.columns(4)
+    for column, (label, status) in zip(columns, cards.items()):
+        css_status = str(status).casefold().replace(" ", "-")
+        with column:
+            st.markdown(
+                f"""
+                <div class="risk-card risk-card-{css_status}">
+                    <div class="risk-card-label">{label}</div>
+                    <div class="risk-card-status">{status}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    st.caption(
+        "Worst available status is used: OK < MODERATE < SEVERE. Domains with no "
+        "SERENE-supported input remain UNAVAILABLE."
+    )
+
+
+def _style_pecasus_table(summary: pd.DataFrame):
+    status_columns = [
+        column for column in [
+            "Status",
+            "Max-3h status",
+            "+3h status",
+            "+6h status",
+        ] if column in summary.columns
+    ]
+
+    def _status_cell(value: object) -> str:
+        status = str(value)
+        color = ICAO_COLORS.get(status, "#95A5A6")
+        text = "#ffffff" if status != "MODERATE" else "#111827"
+        return f"background-color: {color}; color: {text}; font-weight: 700;"
+
+    def _cell_style(_: object) -> str:
+        return (
+            "background-color: #0b1220; color: #e5e7eb; "
+            "border: 1px solid #334155;"
+        )
+
+    styler = summary.style.applymap(_cell_style)
+    for column in status_columns:
+        styler = styler.applymap(_status_cell, subset=[column])
+    return styler
+
+
+def _render_pecasus_summary_table() -> None:
     summary = st.session_state.icao_summary
-    st.subheader("ICAO-style SERENE-only products")
+    st.subheader("ICAO/PECASUS-style summary table")
     st.caption(
-        "Latest and Max-3h values use SERENE AIDA analyses; prediction columns "
-        "use official AIDA +3h/+6h forecasts. Spatial values are regional maxima."
+        "This table deliberately includes unavailable indicators. UNAVAILABLE is "
+        "shown where SERENE does not provide the required input; no OK values are fabricated."
     )
-    st.caption(
-        "Categories use ICAO thresholds: TEC 125/175 TECU, auroral absorption "
-        "proxy Kp 8/9, and PSD 30%/50% with a prior-96h Kp≥6 eligibility gate."
-    )
-    if bundle.kp_storm_eligible is None:
-        st.warning("PSD status unavailable: complete 96-hour SERENE Kp history is missing.")
-    elif bundle.kp_storm_eligible:
-        st.info("PSD storm gate active: SERENE Kp reached at least 6 in the prior 96 hours.")
-    else:
-        st.info("PSD storm gate inactive: SERENE Kp remained below 6 in the prior 96 hours.")
     if summary.empty:
-        st.info("Load SERENE data to create the ICAO-style table and maps.")
+        st.info("Load SERENE data to create the PECASUS-style table.")
         return
+    st.dataframe(_style_pecasus_table(summary), width="stretch", hide_index=True)
 
-    st.dataframe(summary, width="stretch", hide_index=True)
 
-    indicator = st.selectbox(
-        "Categorical regional indicator",
-        ["Vertical TEC", "Post-storm depression"],
+def _render_categorical_risk_map() -> None:
+    bundle: IcaoProductBundle = st.session_state.icao_bundle
+    st.subheader("Categorical risk map")
+    st.caption(
+        "Regional category maps are only created for spatial AIDA products. "
+        "Global Kp/ap are excluded from regional map cells because they are "
+        "planetary indices."
     )
-    horizon = st.radio(
-        "Official product horizon",
-        ["Latest", "+3h", "+6h"],
-        horizontal=True,
-    )
+    map_col, horizon_col = st.columns([2, 2])
+    with map_col:
+        indicator = st.selectbox(
+            "Risk category map",
+            ["Vertical TEC", "Post-Storm Depression"],
+            key="risk_category_map_indicator",
+        )
+    with horizon_col:
+        horizon = st.radio(
+            "Risk product horizon",
+            ["Latest", "+3h", "+6h"],
+            horizontal=True,
+            key="risk_category_map_horizon",
+        )
     cells = build_categorical_cells(
         bundle.products,
         indicator,
@@ -397,24 +523,48 @@ def _render_icao_products(params: dict) -> None:
         kp_storm_eligible=bundle.kp_storm_eligible,
     )
     st.plotly_chart(
-        create_icao_category_map(cells, f"{indicator} — {horizon}"),
+        create_icao_category_map(cells, f"{indicator} risk category — {horizon}"),
         width="stretch",
     )
-    st.caption("Global Kp/ap are excluded from regional map cells.")
+    if indicator == "Post-Storm Depression":
+        if bundle.kp_storm_eligible is None:
+            st.warning("PSD map unavailable: complete 96-hour Kp history is missing.")
+        elif bundle.kp_storm_eligible:
+            st.info("PSD storm gate active: Kp reached at least 6 in the prior 96 hours.")
+        else:
+            st.info("PSD storm gate inactive: PSD risk is reported as OK until a Kp≥6 storm gate is met.")
 
-    st.markdown("#### Indicators unavailable from the SERENE-only source")
-    unavailable = unavailable_indicator_rows()
-    st.dataframe(unavailable, width="stretch", hide_index=True)
-    st.caption("Not available from SERENE means no zero or OK value is fabricated.")
 
-    if bundle.status.ok:
-        _render_research_messages(summary, params)
-    else:
-        st.info("Research messages require a successful SERENE AIDA analysis state.")
+def _render_raw_value_maps(df: pd.DataFrame) -> None:
+    st.subheader("Raw variable maps")
+    st.caption(
+        "Raw AIDA maps use continuous colour scales. These are data-value maps, "
+        "not warning category maps."
+    )
+    options = [
+        variable for variable in ["TEC", "vTEC", "MUF3000F2", "MUF3000"]
+        if variable in set(df.get("variable", pd.Series(dtype=str)).astype(str))
+    ]
+    if not options:
+        options = mappable_variable_options(df)
+    if not options:
+        st.info("No SERENE AIDA variables with latitude/longitude are available for raw maps.")
+        return
+    selected_map_var = st.selectbox("Raw value map", options, key="raw_value_map_variable")
+    st.plotly_chart(create_map_plot(df, variable=selected_map_var), width="stretch")
+    if selected_map_var in {"MUF3000F2", "MUF3000"}:
+        st.caption(
+            "MUF3000F2 is shown only as a raw value. PSD risk is derived from its "
+            "percentage depression relative to the 30-day same-UTC baseline."
+        )
 
 
 def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
-    st.markdown("#### Automated text-based SWX research messages")
+    st.subheader("Automated text-based SPWX research messages")
+    st.caption(
+        "Messages are generated with STATUS: TEST and RESEARCH PROTOTYPE wording. "
+        "They are not official ICAO advisories."
+    )
     analysis_time = st.session_state.status.metadata.get(
         "analysis_time", params["end_time"]
     )
@@ -426,8 +576,8 @@ def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
         "loaded_region", params["region"]
     )
     tec = _summary_row(summary, "Vertical TEC")
-    psd = _summary_row(summary, "Post-storm depression")
-    kp = _summary_row(summary, "Kp auroral absorption proxy")
+    psd = _summary_row(summary, "Post-Storm Depression")
+    kp = _summary_row(summary, "Auroral Absorption")
 
     if tec is not None and tec["Status"] in {"OK", "MODERATE", "SEVERE"}:
         gnss = generate_icao_message(
@@ -448,6 +598,10 @@ def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
             data=gnss,
             file_name="serene_gnss_research_advisory.txt",
             mime="text/plain",
+        )
+        st.caption(
+            "GNSS message is currently generated from Vertical TEC only because "
+            "SERENE does not provide amplitude or phase scintillation inputs."
         )
     else:
         st.info("GNSS research message unavailable because SERENE TEC is unavailable.")
@@ -478,6 +632,11 @@ def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
         file_name="serene_hf_com_research_advisory.txt",
         mime="text/plain",
     )
+    st.caption(
+        "HF COM message is generated from Post-Storm Depression and the global "
+        "Kp auroral-absorption proxy only because PCA and SWF inputs are not "
+        "available from SERENE."
+    )
 
 
 def _summary_row(summary: pd.DataFrame, indicator: str) -> pd.Series | None:
@@ -496,26 +655,19 @@ def _worst_available_category(values: list[object]) -> str | None:
 
 
 def _render_data_views(df: pd.DataFrame, alerts: pd.DataFrame) -> None:
-    st.subheader("Data preview")
-    st.dataframe(build_data_preview(df, alerts).head(100), width="stretch")
+    st.subheader("API/data metadata and raw data preview")
 
     var_options = sorted(df["variable"].dropna().unique()) if "variable" in df.columns else []
-    map_var_options = mappable_variable_options(df)
-    selected_time_var = st.selectbox("Variable for time series", var_options or [None])
-
-    if map_var_options:
-        selected_map_var = st.selectbox("Variable for raw map", map_var_options)
-    else:
-        selected_map_var = None
-        st.info("No variables with latitude/longitude are available for raw map display.")
-
-    col_ts, col_map = st.columns(2)
-    with col_ts:
+    if var_options:
+        selected_time_var = st.selectbox(
+            "Variable for bottom time-series preview", var_options, key="bottom_time_series_variable"
+        )
         st.subheader("Time series")
         st.plotly_chart(create_time_series_plot(df, variable=selected_time_var), width="stretch")
-    with col_map:
-        st.subheader("Raw variable map")
-        st.plotly_chart(create_map_plot(df, variable=selected_map_var), width="stretch")
+    else:
+        st.info("No variables are available for time-series preview.")
+
+    st.dataframe(build_data_preview(df, alerts).head(100), width="stretch")
 
     with st.expander("Raw load metadata"):
         st.json(
@@ -558,25 +710,124 @@ def _render_global_indices(df: pd.DataFrame) -> None:
     st.plotly_chart(create_time_series_plot(global_indices), width="stretch")
 
 
+def _render_explanation_panels() -> None:
+    st.subheader("Method and availability notes")
+    with st.expander("What SERENE AIDA provides"):
+        st.markdown(
+            """
+            SERENE AIDA provides ionospheric model outputs on a geographic grid.
+            This dashboard currently uses AIDA TEC/vTEC and MUF3000F2, plus
+            SERENE Kp/ap indices as global geomagnetic context.
+            """
+        )
+    with st.expander("Which ICAO/PECASUS-style indicators are available from SERENE"):
+        st.markdown(
+            """
+            Available or derived from SERENE-only inputs:
+
+            - Vertical TEC: directly from AIDA TEC/vTEC.
+            - Post-Storm Depression: derived from AIDA MUF3000F2 against a
+              same-UTC 30-day baseline when Full ICAO-style mode loads it.
+            - Auroral Absorption: shown only as a global Kp-based proxy.
+
+            Not available from SERENE-only inputs:
+
+            - Amplitude scintillation
+            - Phase scintillation
+            - Polar Cap Absorption
+            - Shortwave Fadeout
+            - Radiation dose indicators
+            """
+        )
+    with st.expander("How Vertical TEC risk is classified"):
+        st.markdown(
+            """
+            TEC category thresholds are applied to each grid cell:
+
+            - OK: TEC < 125 TECU
+            - MODERATE: 125 <= TEC < 175 TECU
+            - SEVERE: TEC >= 175 TECU
+            """
+        )
+    with st.expander("How Post-Storm Depression is calculated from MUF3000F2"):
+        st.markdown(
+            """
+            MUF3000F2 is not classified by its absolute MHz value. The dashboard
+            first calculates:
+
+            `PSD % = max(0, (reference_MUF3000F2 - current_MUF3000F2) / reference_MUF3000F2 * 100)`
+
+            The reference is the existing 30-day same-UTC AIDA baseline when it
+            can be loaded. PSD thresholds are:
+
+            - OK: PSD < 30%
+            - MODERATE: 30% <= PSD < 50%
+            - SEVERE: PSD >= 50%
+
+            PSD is only activated when Kp reached at least 6 during the previous
+            96 hours. If Kp history is incomplete, PSD is UNAVAILABLE. If the Kp
+            storm gate is inactive, PSD is shown as OK with that limitation stated.
+            """
+        )
+    with st.expander("Why Kp/ap are not plotted as regional risk cells"):
+        st.markdown(
+            """
+            Kp and ap are global planetary geomagnetic indices. They are useful
+            as storm context and as a global HF proxy, but they do not contain
+            latitude/longitude grid cells. Mapping them as regional cells would
+            falsely imply spatial information that is not present in the data.
+            """
+        )
+    with st.expander("Research prototype disclaimer"):
+        st.warning(
+            "This is an academic research prototype and must not be used for real "
+            "operational aviation decision-making. It is not an official ICAO or "
+            "PECASUS warning system."
+        )
+
+
 def _render_main(params: dict) -> None:
     st.title("Aviation Space Weather Dashboard")
-    st.caption("SERENE-only ICAO-style research monitoring and official AIDA forecasts.")
+    st.caption(
+        "SERENE-only ICAO-style research monitoring using official AIDA +3h/+6h forecasts."
+    )
+    st.warning(
+        "This is an academic research prototype and must not be used for real "
+        "operational aviation decision-making."
+    )
 
     _render_cloud_api_hint()
-    _render_connection_panel()
-    _render_historical_windows()
-    st.markdown("---")
 
     bundle: IcaoProductBundle = st.session_state.icao_bundle
     if st.session_state.data.empty and bundle.products.empty:
         _render_empty_state()
+        st.markdown("---")
+        _render_connection_panel()
         return
 
     df = st.session_state.data
     alerts = st.session_state.alerts
-    _render_icao_products(params)
+    summary = st.session_state.icao_summary
+
+    _render_overall_risk_cards(summary)
     st.markdown("---")
+    _render_pecasus_summary_table()
+    st.markdown("---")
+    _render_categorical_risk_map()
+    st.markdown("---")
+    if bundle.status.ok:
+        _render_research_messages(summary, params)
+    else:
+        st.info("Research messages require a successful SERENE AIDA analysis state.")
+    st.markdown("---")
+    if not df.empty:
+        _render_raw_value_maps(df)
+        st.markdown("---")
     _render_global_indices(df)
+    st.markdown("---")
+    _render_explanation_panels()
+    st.markdown("---")
+    _render_connection_panel()
     st.markdown("---")
     if not df.empty:
         _render_data_views(df, alerts)
@@ -585,6 +836,7 @@ def _render_main(params: dict) -> None:
 def main() -> None:
     _init_state()
     _apply_pending_time_range()
+    _inject_dashboard_css()
     params = _render_sidebar()
     _render_main(params)
 

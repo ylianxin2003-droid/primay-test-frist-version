@@ -31,20 +31,24 @@ CELL_COLUMNS = [
 ]
 
 SUMMARY_COLUMNS = [
+    "Domain",
     "Indicator",
-    "Latest time UTC",
+    "Moderate threshold",
+    "Severe threshold",
+    "Time UTC",
     "Latest value",
     "Status",
-    "Max 3h",
+    "Alert",
+    "Max-3h value",
     "Max-3h status",
     "+3h forecast",
     "+3h status",
     "+6h forecast",
     "+6h status",
-    "Source",
+    "Source / Availability",
 ]
 
-_SUPPORTED_INDICATORS = {"Vertical TEC", "Post-storm depression"}
+_SUPPORTED_INDICATORS = {"Vertical TEC", "Post-Storm Depression"}
 _SUPPORTED_MAP_HORIZONS = {"Latest", "+3h", "+6h"}
 
 
@@ -185,30 +189,117 @@ def build_categorical_cells(
 
 
 def build_icao_summary(products, indices, eligible=False):
-    """Return the fixed ICAO summary table using regional spatial maxima."""
+    """Return a PECASUS-style table with available and unavailable indicators."""
     product_frame = _normalise_product_columns(_as_frame(products))
     rows = [
-        _spatial_summary_row(product_frame, "Vertical TEC", eligible),
-        _spatial_summary_row(product_frame, "Post-storm depression", eligible),
+        _unavailable_summary_row(
+            "GNSS",
+            "Amplitude Scintillation",
+            "S4 >= 0.5",
+            "S4 >= 0.8",
+            "Not available from SERENE AIDA/Kp-ap inputs",
+        ),
+        _unavailable_summary_row(
+            "GNSS",
+            "Phase Scintillation",
+            "sigma-phi >= 0.4",
+            "sigma-phi >= 0.7",
+            "Not available from SERENE AIDA/Kp-ap inputs",
+        ),
+        _spatial_summary_row(product_frame, "GNSS", "Vertical TEC", eligible),
         _kp_summary_row(_as_frame(indices)),
+        _unavailable_summary_row(
+            "HF COM",
+            "Polar Cap Absorption",
+            "PCA >= 2 dB",
+            "PCA >= 5 dB",
+            "Not available from SERENE AIDA/Kp-ap inputs",
+        ),
+        _unavailable_summary_row(
+            "HF COM",
+            "Shortwave Fadeout",
+            "X-ray class >= X1",
+            "X-ray class >= X10",
+            "Not available from SERENE AIDA/Kp-ap inputs",
+        ),
+        _spatial_summary_row(product_frame, "HF COM", "Post-Storm Depression", eligible),
+        _unavailable_summary_row(
+            "Radiation",
+            "Effective Dose FL <= 460",
+            "Dose-rate threshold not supplied by SERENE",
+            "Dose-rate threshold not supplied by SERENE",
+            "Not available from SERENE AIDA/Kp-ap inputs",
+        ),
+        _unavailable_summary_row(
+            "Radiation",
+            "Effective Dose FL > 460",
+            "Dose-rate threshold not supplied by SERENE",
+            "Dose-rate threshold not supplied by SERENE",
+            "Not available from SERENE AIDA/Kp-ap inputs",
+        ),
     ]
     return pd.DataFrame(rows, columns=SUMMARY_COLUMNS)
 
 
 def unavailable_indicator_rows():
     """List ICAO indicators that cannot currently be derived from SERENE."""
-    return pd.DataFrame({
-        "Indicator": [
-            "Amplitude scintillation S4",
-            "Phase scintillation sigma-phi",
-            "Polar-cap absorption",
-            "Shortwave fadeout",
-        ],
-        "Availability": ["Not available from SERENE"] * 4,
-    })
+    return pd.DataFrame([
+        {
+            "Domain": "GNSS",
+            "Indicator": "Amplitude Scintillation",
+            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
+        },
+        {
+            "Domain": "GNSS",
+            "Indicator": "Phase Scintillation",
+            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
+        },
+        {
+            "Domain": "HF COM",
+            "Indicator": "Polar Cap Absorption",
+            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
+        },
+        {
+            "Domain": "HF COM",
+            "Indicator": "Shortwave Fadeout",
+            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
+        },
+        {
+            "Domain": "Radiation",
+            "Indicator": "Effective Dose FL <= 460",
+            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
+        },
+        {
+            "Domain": "Radiation",
+            "Indicator": "Effective Dose FL > 460",
+            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
+        },
+    ])
 
 
-def _spatial_summary_row(frame, indicator, eligible):
+def build_overall_risk_cards(summary):
+    """Return top-line domain and overall status from the PECASUS table."""
+    frame = _as_frame(summary)
+    if frame.empty or not {"Domain", "Status"}.issubset(frame.columns):
+        return {
+            "GNSS Risk": "UNAVAILABLE",
+            "HF COM Risk": "UNAVAILABLE",
+            "Radiation Risk": "UNAVAILABLE",
+            "Overall Risk": "UNAVAILABLE",
+        }
+    cards = {}
+    for domain, label in (
+        ("GNSS", "GNSS Risk"),
+        ("HF COM", "HF COM Risk"),
+        ("Radiation", "Radiation Risk"),
+    ):
+        statuses = frame.loc[frame["Domain"] == domain, "Status"].tolist()
+        cards[label] = _worst_available_or_unavailable(statuses)
+    cards["Overall Risk"] = _worst_available_or_unavailable(cards.values())
+    return cards
+
+
+def _spatial_summary_row(frame, domain, indicator, eligible):
     values = {}
     sources = []
     for horizon in ("Latest", "Max3h", "+3h", "+6h"):
@@ -225,18 +316,29 @@ def _spatial_summary_row(frame, indicator, eligible):
     classifier = classify_tec if indicator == "Vertical TEC" else (
         lambda value: classify_psd(value, eligible)
     )
+    latest_status = classifier(latest_value) if latest_value is not None else "UNAVAILABLE"
+    max3_status = classifier(max3) if max3 is not None else "UNAVAILABLE"
+    plus3_status = classifier(plus3) if plus3 is not None else "UNAVAILABLE"
+    plus6_status = classifier(plus6) if plus6 is not None else "UNAVAILABLE"
     return {
+        "Domain": domain,
         "Indicator": indicator,
-        "Latest time UTC": _format_utc(latest.get("time")) if latest is not None else "N/A",
+        "Moderate threshold": _moderate_threshold(indicator),
+        "Severe threshold": _severe_threshold(indicator),
+        "Time UTC": _format_utc(latest.get("time")) if latest is not None else "N/A",
         "Latest value": _na(latest_value),
-        "Status": classifier(latest_value) if latest_value is not None else "N/A",
-        "Max 3h": _na(max3),
-        "Max-3h status": classifier(max3) if max3 is not None else "N/A",
+        "Status": latest_status,
+        "Alert": _alert_icon(latest_status),
+        "Max-3h value": _na(max3),
+        "Max-3h status": max3_status,
         "+3h forecast": _na(plus3),
-        "+3h status": classifier(plus3) if plus3 is not None else "N/A",
+        "+3h status": plus3_status,
         "+6h forecast": _na(plus6),
-        "+6h status": classifier(plus6) if plus6 is not None else "N/A",
-        "Source": ", ".join(dict.fromkeys(sources)) if sources else "N/A",
+        "+6h status": plus6_status,
+        "Source / Availability": (
+            ", ".join(dict.fromkeys(sources))
+            if sources else _availability_note(indicator, eligible)
+        ),
     }
 
 
@@ -269,21 +371,51 @@ def _kp_summary_row(frame):
                 else:
                     row = work.iloc[-1]
     value = _finite_float(row.get("value")) if row is not None else None
+    status = classify_auroral_absorption(value) if value is not None else "UNAVAILABLE"
+    max3_status = (
+        classify_auroral_absorption(max3_value)
+        if max3_value is not None else "UNAVAILABLE"
+    )
     return {
-        "Indicator": "Kp auroral absorption proxy",
-        "Latest time UTC": _format_utc(row.get("time")) if row is not None else "N/A",
+        "Domain": "HF COM",
+        "Indicator": "Auroral Absorption",
+        "Moderate threshold": "Kp >= 8 global proxy",
+        "Severe threshold": "Kp >= 9 global proxy",
+        "Time UTC": _format_utc(row.get("time")) if row is not None else "N/A",
         "Latest value": _na(value),
-        "Status": classify_auroral_absorption(value) if value is not None else "N/A",
-        "Max 3h": _na(max3_value),
-        "Max-3h status": (
-            classify_auroral_absorption(max3_value)
-            if max3_value is not None else "N/A"
-        ),
+        "Status": status,
+        "Alert": _alert_icon(status),
+        "Max-3h value": _na(max3_value),
+        "Max-3h status": max3_status,
         "+3h forecast": "N/A",
-        "+3h status": "N/A",
+        "+3h status": "UNAVAILABLE",
         "+6h forecast": "N/A",
-        "+6h status": "N/A",
-        "Source": _source_value(row.get("source")) if row is not None else "N/A",
+        "+6h status": "UNAVAILABLE",
+        "Source / Availability": (
+            _source_value(row.get("source")) + "; global Kp proxy, not regional"
+            if row is not None else
+            "SERENE Kp/ap unavailable; global proxy, not regional"
+        ),
+    }
+
+
+def _unavailable_summary_row(domain, indicator, moderate, severe, availability):
+    return {
+        "Domain": domain,
+        "Indicator": indicator,
+        "Moderate threshold": moderate,
+        "Severe threshold": severe,
+        "Time UTC": "N/A",
+        "Latest value": "N/A",
+        "Status": "UNAVAILABLE",
+        "Alert": _alert_icon("UNAVAILABLE"),
+        "Max-3h value": "N/A",
+        "Max-3h status": "UNAVAILABLE",
+        "+3h forecast": "N/A",
+        "+3h status": "UNAVAILABLE",
+        "+6h forecast": "N/A",
+        "+6h status": "UNAVAILABLE",
+        "Source / Availability": availability,
     }
 
 
@@ -313,7 +445,7 @@ def _regional_max(frame, indicator, horizon):
 def _indicator_value(row, indicator):
     if row is None:
         return None
-    if indicator == "Post-storm depression":
+    if indicator == "Post-Storm Depression":
         return _psd_value(row)
     return _finite_float(row.get("value"))
 
@@ -360,7 +492,7 @@ def _canonical_indicator(value):
     if text in {"vertical tec", "tec", "vtec"}:
         return "Vertical TEC"
     if text in {"post-storm depression", "post storm depression", "psd"}:
-        return "Post-storm depression"
+        return "Post-Storm Depression"
     return str(value).strip()
 
 
@@ -430,3 +562,49 @@ def _product_state(item, horizon):
 
 def _na(value):
     return "N/A" if value is None else value
+
+
+def _moderate_threshold(indicator):
+    if indicator == "Vertical TEC":
+        return "TEC >= 125 TECU"
+    if indicator == "Post-Storm Depression":
+        return "PSD >= 30%"
+    return "N/A"
+
+
+def _severe_threshold(indicator):
+    if indicator == "Vertical TEC":
+        return "TEC >= 175 TECU"
+    if indicator == "Post-Storm Depression":
+        return "PSD >= 50%"
+    return "N/A"
+
+
+def _availability_note(indicator, eligible):
+    if indicator == "Post-Storm Depression":
+        if eligible is None:
+            return "Requires AIDA MUF3000F2 baseline and complete prior-96h Kp history"
+        if not eligible:
+            return "AIDA MUF3000F2-derived PSD; Kp storm gate inactive"
+        return "AIDA MUF3000F2-derived PSD; Kp storm gate active"
+    if indicator == "Vertical TEC":
+        return "SERENE AIDA TEC unavailable for selected product"
+    return "N/A"
+
+
+def _alert_icon(status):
+    return {
+        "OK": "✓",
+        "MODERATE": "⚠",
+        "SEVERE": "!",
+        "UNAVAILABLE": "—",
+        "N/A": "—",
+    }.get(str(status), "—")
+
+
+def _worst_available_or_unavailable(values):
+    priority = {"OK": 0, "MODERATE": 1, "SEVERE": 2}
+    available = [str(value) for value in values if str(value) in priority]
+    if not available:
+        return "UNAVAILABLE"
+    return max(available, key=priority.get)

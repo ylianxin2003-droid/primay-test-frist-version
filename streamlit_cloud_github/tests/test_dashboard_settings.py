@@ -105,7 +105,11 @@ class DashboardSettingsTest(unittest.TestCase):
     def test_app_exposes_serene_only_icao_products(self):
         app_source = APP_PATH.read_text()
 
-        self.assertIn("ICAO-style SERENE-only products", app_source)
+        self.assertIn("ICAO/PECASUS-style summary table", app_source)
+        self.assertIn("Overall risk status", app_source)
+        self.assertIn("Categorical risk map", app_source)
+        self.assertIn("Raw variable maps", app_source)
+        self.assertIn("Automated text-based SPWX research messages", app_source)
         self.assertIn("load_icao_products", app_source)
         self.assertIn("build_icao_summary", app_source)
         self.assertIn("create_icao_category_map", app_source)
@@ -113,6 +117,16 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertIn("generate_icao_message", app_source)
         self.assertIn("Download GNSS research message", app_source)
         self.assertIn("Download HF COM research message", app_source)
+
+    def test_app_exposes_quick_demo_and_full_icao_modes(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertIn("Quick Demo", app_source)
+        self.assertIn("Full ICAO-style mode", app_source)
+        self.assertIn("include_three_hour_window", app_source)
+        self.assertIn("include_psd_baseline", app_source)
+        self.assertIn("Demo / validation storm windows", app_source)
+        self.assertNotIn("Historical risk windows", app_source)
 
     def test_primary_forecast_uses_official_serene_products(self):
         app_source = APP_PATH.read_text()
