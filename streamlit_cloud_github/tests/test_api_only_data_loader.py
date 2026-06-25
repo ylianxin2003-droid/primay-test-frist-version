@@ -267,6 +267,43 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertEqual(bundle.status.metadata["baseline_download_failures"], 2)
         self.assertFalse(bundle.products["psd_percent"].dropna().empty)
 
+    def test_early_archive_window_skips_psd_and_summarises_missing_forecasts(self):
+        import data_loader
+
+        class MissingForecastClient(FakeRawClient):
+            def download_aida_forecast(self, requested_time, latency, period_minutes):
+                return (
+                    False,
+                    f"SERENE AIDA forecast API returned status 404 for "
+                    f"product={latency}, file_type=raw, file_time=2024-10-11T02:55:00, "
+                    f"forecast_period={period_minutes} min. "
+                    '"Requested file is not available for download."',
+                    None,
+                )
+
+        client = MissingForecastClient()
+        with (
+            patch.object(data_loader, "SereneClient", return_value=client),
+            patch.object(data_loader, "calculate_aida_grid", side_effect=_fake_calculation),
+        ):
+            bundle = data_loader.load_icao_products(
+                analysis_time="2024-10-11T02:55:00Z",
+                variables=["MUF3000F2"],
+                region=GLOBAL_REGION,
+                grid_step=30,
+                include_three_hour_window=False,
+                include_psd_baseline=True,
+            )
+
+        warnings = "\n".join(bundle.status.warnings)
+        self.assertIn("PSD unavailable", warnings)
+        self.assertIn("archive boundary", warnings)
+        self.assertIn("Official AIDA +3h forecast unavailable", warnings)
+        self.assertIn("Official AIDA +6h forecast unavailable", warnings)
+        self.assertNotIn("only 13/30", warnings)
+        self.assertNotIn("forecast API returned status 404", warnings)
+        self.assertEqual(bundle.status.metadata["baseline_state_count"], 0)
+
     def test_api_failure_does_not_fall_back_to_local_file(self):
         import data_loader
 

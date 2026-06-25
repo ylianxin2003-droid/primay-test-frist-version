@@ -100,6 +100,8 @@ def load_icao_products(
         if requested >= AIDA_ARCHIVE_START_UTC
     ]
     baseline_truncated = len(baseline_times) < len(requested_baseline_times)
+    if baseline_truncated:
+        baseline_times = []
     client = SereneClient()
     total_requests = len(rolling_times) + len(baseline_times) + 2
     completed = 0
@@ -113,8 +115,8 @@ def load_icao_products(
         )
     if baseline_truncated:
         warnings.append(
-            "A complete 30-day AIDA reference is unavailable before the "
-            "2024-09-28 archive boundary; PSD is unavailable."
+            "PSD unavailable: a complete 30-day AIDA reference is unavailable "
+            "before the 2024-09-28 archive boundary."
         )
     product_frames: list[pd.DataFrame] = []
     baseline_value_series: list[pd.Series] = []
@@ -185,7 +187,7 @@ def load_icao_products(
         completed += 1
         report_progress(f"AIDA +{period // 60}h forecast")
         if not ok or payload is None:
-            warnings.append(message)
+            warnings.append(_forecast_unavailable_message(period, message))
             continue
         forecast_downloads += 1
         try:
@@ -308,6 +310,20 @@ def _calculate_product_frame(
     frame["requested_time"] = requested_time
     frame["forecast_minutes"] = int(forecast_minutes)
     return frame
+
+
+def _forecast_unavailable_message(period_minutes: int, detail: str) -> str:
+    """Summarise missing official forecast files without exposing raw API noise."""
+    hours = period_minutes // 60
+    reason = "SERENE did not provide a downloadable forecast file for this analysis time."
+    lower_detail = detail.lower()
+    if "401" in detail or "403" in detail or "token" in lower_detail:
+        reason = "SERENE rejected the API token for the forecast file."
+    elif "not available for download" in lower_detail or "404" in detail:
+        reason = "SERENE did not provide a downloadable forecast file for this analysis time."
+    elif detail:
+        reason = detail
+    return f"Official AIDA +{hours}h forecast unavailable: {reason}"
 
 
 def _baseline_value_series(
