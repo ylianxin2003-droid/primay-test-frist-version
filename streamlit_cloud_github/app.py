@@ -134,9 +134,10 @@ def _render_sidebar() -> dict:
         ["Quick Demo", "Full ICAO-style mode"],
         index=0,
         help=(
-            "Quick Demo loads the latest analysis and +3h/+6h official forecasts. "
-            "Full ICAO-style mode also loads the 3-hour observation window and "
-            "30-day MUF3000F2 baseline for PSD."
+            "Quick Demo loads the latest analysis and uses +3h/+6h prediction "
+            "columns, preferring SERENE official forecasts when available and "
+            "otherwise using persistence. Full ICAO-style mode also loads the "
+            "3-hour observation window and 30-day MUF3000F2 baseline for PSD."
         ),
     )
     params["mode"] = mode
@@ -418,7 +419,7 @@ def _render_empty_state() -> None:
     st.subheader("ICAO-style SERENE-only products")
     st.info(
         "The category map, summary table, and research messages appear after "
-        "SERENE analysis and official forecast products are loaded."
+        "SERENE analysis and prediction products are loaded."
     )
     with st.expander("Quick start"):
         st.markdown(
@@ -486,7 +487,9 @@ def _render_pecasus_summary_table() -> None:
     st.subheader("ICAO/PECASUS-style summary table")
     st.caption(
         "This table deliberately includes unavailable indicators. UNAVAILABLE is "
-        "shown where SERENE does not provide the required input; no OK values are fabricated."
+        "shown where SERENE does not provide the required input; no OK values are fabricated. "
+        "The Forecast source column distinguishes SERENE official forecasts from "
+        "persistence or trend-based dashboard predictions."
     )
     if summary.empty:
         st.info("Load SERENE data to create the PECASUS-style table.")
@@ -511,7 +514,7 @@ def _render_categorical_risk_map() -> None:
         )
     with horizon_col:
         horizon = st.radio(
-            "Risk product horizon",
+            "Prediction horizon",
             ["Latest", "+3h", "+6h"],
             horizontal=True,
             key="risk_category_map_horizon",
@@ -718,6 +721,12 @@ def _render_explanation_panels() -> None:
             SERENE AIDA provides ionospheric model outputs on a geographic grid.
             This dashboard currently uses AIDA TEC/vTEC and MUF3000F2, plus
             SERENE Kp/ap indices as global geomagnetic context.
+
+            The +3h and +6h columns are prediction outputs. They may come from
+            official SERENE AIDA forecasts when available, or from transparent
+            dashboard-side fallback methods such as persistence or trend-based
+            extrapolation. The forecast source is shown to avoid misrepresenting
+            generated predictions as official SERENE outputs.
             """
         )
     with st.expander("Which ICAO/PECASUS-style indicators are available from SERENE"):
@@ -789,7 +798,8 @@ def _render_explanation_panels() -> None:
 def _render_main(params: dict) -> None:
     st.title("Aviation Space Weather Dashboard")
     st.caption(
-        "SERENE-only ICAO-style research monitoring using official AIDA +3h/+6h forecasts."
+        "SERENE-only ICAO-style research monitoring. Forecast source: SERENE "
+        "official forecast when available; otherwise dashboard-generated forecast."
     )
 
     _render_cloud_api_hint()

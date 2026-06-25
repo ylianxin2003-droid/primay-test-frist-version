@@ -62,7 +62,7 @@ def load_icao_products(
     include_psd_baseline: bool = True,
     progress_callback: Any | None = None,
 ) -> IcaoProductBundle:
-    """Load observed, rolling, and official forecast SERENE AIDA products."""
+    """Load SERENE analysis, rolling states, and available forecast inputs."""
     status = LoadStatus(source="none", ok=False)
     try:
         analysis = normalise_aida_request_time(analysis_time)
@@ -258,7 +258,7 @@ def load_icao_products(
     status.source = "api" if has_analysis else "none"
     status.ok = bool(has_analysis)
     status.message = (
-        "Loaded SERENE AIDA observations and available official forecasts."
+        "Loaded SERENE AIDA observations and available prediction inputs."
         if has_analysis else
         "SERENE returned no usable AIDA analysis state."
     )
@@ -285,10 +285,10 @@ def _aida_latency(requested: pd.Timestamp) -> str:
     """Choose an AIDA product suitable for five-minute map requests.
 
     SERENE lists the ``final`` AIDA product as a daily product, while this
-    dashboard requests specific five-minute states and official forecast files.
-    Forecast downloads only support ultra-rapid/rapid products, so historical
-    testing uses rapid rather than final to avoid invalid ``product=final``
-    forecast requests and missing five-minute final raw files.
+    dashboard requests specific five-minute states and, when available, official
+    forecast files. Forecast downloads only support ultra-rapid/rapid products,
+    so historical testing uses rapid rather than final to avoid invalid
+    ``product=final`` forecast requests and missing five-minute final raw files.
     """
     return "ultra" if requested.year == pd.Timestamp.now(tz="UTC").year else "rapid"
 

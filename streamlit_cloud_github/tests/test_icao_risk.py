@@ -132,7 +132,7 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertIn("product_state", latest.columns)
         self.assertIn("125", latest.iloc[0]["threshold_explanation"])
         self.assertEqual(latest.iloc[0]["product_state"], "analysis")
-        self.assertEqual(forecast.iloc[0]["product_state"], "official forecast")
+        self.assertEqual(forecast.iloc[0]["product_state"], "serene official forecast")
 
     def test_summary_uses_regional_max_and_keeps_missing_values_na(self):
         from icao_risk import build_icao_summary
@@ -156,8 +156,8 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(tec["Status"], "SEVERE")
         self.assertEqual(tec["Max-3h value"], 160)
         self.assertEqual(tec["Max-3h status"], "MODERATE")
-        self.assertEqual(tec["+6h forecast"], "N/A")
-        self.assertEqual(tec["+6h status"], "UNAVAILABLE")
+        self.assertEqual(tec["+6h forecast"], 180.0)
+        self.assertEqual(tec["+6h status"], "SEVERE")
         self.assertEqual(kp["Latest value"], 8.5)
         self.assertEqual(kp["Status"], "MODERATE")
         self.assertEqual(kp["Max-3h value"], 8.5)
@@ -240,6 +240,10 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(psd_latest.iloc[0]["category"], "MODERATE")
         self.assertEqual(tec["Max-3h value"], 180)
         self.assertEqual(tec["+3h forecast"], 150)
+        self.assertEqual(
+            tec["Forecast source"],
+            "SERENE official forecast (+3h); Trend-based forecast (+6h)",
+        )
 
     def test_missing_psd_baseline_never_treats_muf_mhz_as_percent(self):
         from icao_risk import build_categorical_cells, build_icao_summary
@@ -317,6 +321,7 @@ class IcaoRiskTest(unittest.TestCase):
             "+3h status",
             "+6h forecast",
             "+6h status",
+            "Forecast source",
             "Source / Availability",
         ])
         self.assertEqual(set(summary["Indicator"]), {
@@ -344,6 +349,111 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(psd["Status"], "MODERATE")
         self.assertEqual(kp["Status"], "MODERATE")
         self.assertEqual(kp["+3h status"], "UNAVAILABLE")
+        self.assertEqual(kp["Forecast source"], "Unavailable")
+
+    def test_summary_uses_trend_prediction_when_official_forecasts_missing(self):
+        from icao_risk import build_categorical_cells, build_icao_summary
+
+        products = pd.DataFrame([
+            {
+                "variable": "TEC",
+                "product_kind": "rolling",
+                "time": "2026-06-24T09:00:00Z",
+                "lat": 50,
+                "lon": 1,
+                "value": 100,
+                "source": "SERENE AIDA analysis",
+            },
+            {
+                "variable": "TEC",
+                "product_kind": "analysis",
+                "time": "2026-06-24T12:00:00Z",
+                "lat": 50,
+                "lon": 1,
+                "value": 130,
+                "source": "SERENE AIDA analysis",
+            },
+        ])
+
+        summary = build_icao_summary(products, pd.DataFrame(), eligible=False)
+        tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
+        plus6 = build_categorical_cells(products, "Vertical TEC", "+6h")
+
+        self.assertEqual(tec["+3h forecast"], 160.0)
+        self.assertEqual(tec["+3h status"], "MODERATE")
+        self.assertEqual(tec["+6h forecast"], 190.0)
+        self.assertEqual(tec["+6h status"], "SEVERE")
+        self.assertEqual(tec["Forecast source"], "Trend-based forecast")
+        self.assertEqual(plus6.iloc[0]["display_value"], 190.0)
+        self.assertEqual(plus6.iloc[0]["category"], "SEVERE")
+        self.assertEqual(plus6.iloc[0]["product_state"], "trend-based forecast")
+
+    def test_summary_uses_persistence_prediction_without_three_hour_window(self):
+        from icao_risk import build_categorical_cells, build_icao_summary
+
+        products = pd.DataFrame([
+            {
+                "variable": "TEC",
+                "product_kind": "analysis",
+                "time": "2026-06-24T12:00:00Z",
+                "lat": 50,
+                "lon": 1,
+                "value": 130,
+                "source": "SERENE AIDA analysis",
+            },
+        ])
+
+        summary = build_icao_summary(products, pd.DataFrame(), eligible=False)
+        tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
+        plus3 = build_categorical_cells(products, "Vertical TEC", "+3h")
+
+        self.assertEqual(tec["+3h forecast"], 130.0)
+        self.assertEqual(tec["+6h forecast"], 130.0)
+        self.assertEqual(tec["+3h status"], "MODERATE")
+        self.assertEqual(tec["Forecast source"], "Persistence forecast")
+        self.assertEqual(plus3.iloc[0]["display_value"], 130.0)
+        self.assertEqual(plus3.iloc[0]["product_state"], "persistence forecast")
+
+    def test_psd_prediction_fallback_keeps_kp_gate(self):
+        from icao_risk import build_categorical_cells, build_icao_summary
+
+        products = pd.DataFrame([
+            {
+                "variable": "MUF3000F2",
+                "product_kind": "rolling",
+                "time": "2026-06-24T09:00:00Z",
+                "lat": 50,
+                "lon": 1,
+                "value": 12,
+                "psd_percent": 20,
+                "source": "SERENE AIDA analysis",
+            },
+            {
+                "variable": "MUF3000F2",
+                "product_kind": "analysis",
+                "time": "2026-06-24T12:00:00Z",
+                "lat": 50,
+                "lon": 1,
+                "value": 8,
+                "psd_percent": 35,
+                "source": "SERENE AIDA analysis",
+            },
+        ])
+
+        summary = build_icao_summary(products, pd.DataFrame(), eligible=True)
+        psd = summary.loc[summary["Indicator"] == "Post-Storm Depression"].iloc[0]
+        gated_off = build_categorical_cells(
+            products, "Post-Storm Depression", "+3h", kp_storm_eligible=False
+        )
+        gated_on = build_categorical_cells(
+            products, "Post-Storm Depression", "+3h", kp_storm_eligible=True
+        )
+
+        self.assertEqual(psd["+3h forecast"], 50.0)
+        self.assertEqual(psd["+3h status"], "SEVERE")
+        self.assertEqual(psd["Forecast source"], "Trend-based forecast")
+        self.assertEqual(gated_off.iloc[0]["category"], "OK")
+        self.assertEqual(gated_on.iloc[0]["category"], "SEVERE")
 
     def test_overall_risk_cards_use_worst_available_status(self):
         from icao_risk import build_overall_risk_cards

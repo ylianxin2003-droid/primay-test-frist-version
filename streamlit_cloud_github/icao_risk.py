@@ -45,6 +45,7 @@ SUMMARY_COLUMNS = [
     "+3h status",
     "+6h forecast",
     "+6h status",
+    "Forecast source",
     "Source / Availability",
 ]
 
@@ -141,10 +142,7 @@ def build_categorical_cells(
     if not {"indicator", "horizon", "lat", "lon"}.issubset(frame.columns):
         return empty
 
-    work = frame[
-        (frame["indicator"].map(_canonical_indicator) == canonical_indicator)
-        & (frame["horizon"].map(_canonical_horizon) == canonical_horizon)
-    ].copy()
+    work = _rows_for_indicator_horizon(frame, canonical_indicator, canonical_horizon)
     if work.empty:
         return empty
     if canonical_horizon == "Latest" and "time" in work.columns:
@@ -335,6 +333,9 @@ def _spatial_summary_row(frame, domain, indicator, eligible):
         "+3h status": plus3_status,
         "+6h forecast": _na(plus6),
         "+6h status": plus6_status,
+        "Forecast source": _summary_forecast_source(
+            values["+3h"], values["+6h"]
+        ),
         "Source / Availability": (
             ", ".join(dict.fromkeys(sources))
             if sources else _availability_note(indicator, eligible)
@@ -391,6 +392,7 @@ def _kp_summary_row(frame):
         "+3h status": "UNAVAILABLE",
         "+6h forecast": "N/A",
         "+6h status": "UNAVAILABLE",
+        "Forecast source": "Unavailable",
         "Source / Availability": (
             _source_value(row.get("source")) + "; global Kp proxy, not regional"
             if row is not None else
@@ -415,6 +417,7 @@ def _unavailable_summary_row(domain, indicator, moderate, severe, availability):
         "+3h status": "UNAVAILABLE",
         "+6h forecast": "N/A",
         "+6h status": "UNAVAILABLE",
+        "Forecast source": "Unavailable",
         "Source / Availability": availability,
     }
 
@@ -422,10 +425,7 @@ def _unavailable_summary_row(domain, indicator, moderate, severe, availability):
 def _regional_max(frame, indicator, horizon):
     if frame.empty or not {"indicator", "horizon"}.issubset(frame.columns):
         return None
-    work = frame[
-        (frame["indicator"].map(_canonical_indicator) == indicator)
-        & (frame["horizon"].map(_canonical_horizon) == horizon)
-    ].copy()
+    work = _rows_for_indicator_horizon(frame, indicator, horizon)
     if work.empty:
         return None
     if horizon == "Latest" and "time" in work.columns:
@@ -440,6 +440,95 @@ def _regional_max(frame, indicator, horizon):
     if work.empty:
         return None
     return work.loc[work["_risk_value"].idxmax()]
+
+
+def _rows_for_indicator_horizon(frame, indicator, horizon):
+    """Return official rows when present, otherwise generated prediction rows."""
+    if frame.empty or not {"indicator", "horizon"}.issubset(frame.columns):
+        return pd.DataFrame()
+    canonical_horizon = _canonical_horizon(horizon)
+    work = frame[
+        (frame["indicator"].map(_canonical_indicator) == indicator)
+        & (frame["horizon"].map(_canonical_horizon) == canonical_horizon)
+    ].copy()
+    if not work.empty:
+        if canonical_horizon in {"+3h", "+6h"}:
+            work["forecast_source"] = "SERENE official forecast"
+        return work
+    if canonical_horizon in {"+3h", "+6h"}:
+        return _fallback_prediction_rows(frame, indicator, canonical_horizon)
+    return work
+
+
+def _fallback_prediction_rows(frame, indicator, horizon):
+    if frame.empty or not {"indicator", "horizon", "lat", "lon"}.issubset(frame.columns):
+        return pd.DataFrame()
+    hours = 3 if horizon == "+3h" else 6
+    work = frame[
+        (frame["indicator"].map(_canonical_indicator) == indicator)
+        & (frame["horizon"].map(_canonical_horizon).isin(["Latest", "Max3h"]))
+    ].copy()
+    if "product_kind" in work.columns:
+        work = work[work["product_kind"].astype(str).str.casefold() != "baseline"]
+    if work.empty:
+        return pd.DataFrame()
+    work["lat"] = pd.to_numeric(work["lat"], errors="coerce")
+    work["lon"] = pd.to_numeric(work["lon"], errors="coerce")
+    work["_risk_value"] = work.apply(
+        lambda row: _indicator_value(row, indicator), axis=1
+    )
+    work["_risk_value"] = pd.to_numeric(work["_risk_value"], errors="coerce")
+    if "time" in work.columns:
+        work["_parsed_time"] = pd.to_datetime(work["time"], errors="coerce", utc=True)
+    else:
+        work["_parsed_time"] = pd.NaT
+    work = work.dropna(subset=["lat", "lon", "_risk_value"])
+    if work.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for _, group in work.groupby(["lat", "lon"], sort=False):
+        if group["_parsed_time"].notna().any():
+            latest_time = group["_parsed_time"].max()
+            latest_candidates = group[group["_parsed_time"] == latest_time]
+            latest = latest_candidates.iloc[-1].copy()
+            window_start = latest_time - pd.Timedelta(hours=3)
+            window = group[
+                group["_parsed_time"].between(window_start, latest_time, inclusive="both")
+            ].copy()
+            earlier = window[window["_parsed_time"] < latest_time]
+            if not earlier.empty:
+                earliest = earlier.sort_values("_parsed_time").iloc[0]
+                trend_per_hour = (
+                    float(latest["_risk_value"]) - float(earliest["_risk_value"])
+                ) / 3.0
+                predicted = float(latest["_risk_value"]) + trend_per_hour * hours
+                forecast_source = "Trend-based forecast"
+            else:
+                predicted = float(latest["_risk_value"])
+                forecast_source = "Persistence forecast"
+            latest["time"] = latest_time + pd.Timedelta(hours=hours)
+        else:
+            latest = group.iloc[-1].copy()
+            predicted = float(latest["_risk_value"])
+            forecast_source = "Persistence forecast"
+
+        latest["horizon"] = horizon
+        latest["forecast_source"] = forecast_source
+        latest["product_kind"] = (
+            f"fallback_trend_{hours * 60}"
+            if forecast_source == "Trend-based forecast"
+            else f"fallback_persistence_{hours * 60}"
+        )
+        latest["source"] = (
+            f"Dashboard-generated {forecast_source.lower()} from SERENE analysis"
+        )
+        if indicator == "Post-Storm Depression":
+            latest["psd_percent"] = predicted
+        else:
+            latest["value"] = predicted
+        rows.append(latest.drop(labels=["_risk_value", "_parsed_time"], errors="ignore"))
+    return pd.DataFrame(rows)
 
 
 def _indicator_value(row, indicator):
@@ -554,6 +643,9 @@ def _threshold_explanation(indicator, kp_storm_eligible):
 
 
 def _product_state(item, horizon):
+    forecast_source = item.get("forecast_source")
+    if forecast_source is not None and not pd.isna(forecast_source):
+        return str(forecast_source).casefold()
     product_kind = str(item.get("product_kind", "")).strip().casefold()
     if product_kind.startswith("forecast_") or horizon in {"+3h", "+6h"}:
         return "official forecast"
@@ -600,6 +692,37 @@ def _alert_icon(status):
         "UNAVAILABLE": "—",
         "N/A": "—",
     }.get(str(status), "—")
+
+
+def _summary_forecast_source(plus3, plus6):
+    entries = []
+    for label, row in (("+3h", plus3), ("+6h", plus6)):
+        source = _row_forecast_source(row)
+        if source != "Unavailable":
+            entries.append((label, source))
+    if not entries:
+        return "Unavailable"
+    unique_sources = list(dict.fromkeys(source for _, source in entries))
+    if len(unique_sources) == 1 and len(entries) == 2:
+        return unique_sources[0]
+    parts = [f"{source} ({label})" for label, source in entries]
+    missing_labels = {
+        "+3h": plus3,
+        "+6h": plus6,
+    }
+    for label, row in missing_labels.items():
+        if row is None:
+            parts.append(f"Unavailable ({label})")
+    return "; ".join(parts)
+
+
+def _row_forecast_source(row):
+    if row is None:
+        return "Unavailable"
+    source = row.get("forecast_source")
+    if source is None or pd.isna(source) or not str(source).strip():
+        return "Unavailable"
+    return str(source)
 
 
 def _worst_available_or_unavailable(values):

@@ -12,7 +12,7 @@ spatial ionospheric parameters.
 ```text
 Streamlit Secrets
   -> GET https://spaceweather.bham.ac.uk/api/download-output/
-  -> GET https://spaceweather.bham.ac.uk/api/download-forecast/
+  -> GET https://spaceweather.bham.ac.uk/api/download-forecast/ when available
   -> one raw AIDA HDF5 state per distinct requested time
   -> official AIDAState.readFile() and AIDAState.calc()
   -> exact local bounding-box/grid calculation
@@ -46,9 +46,13 @@ absorption proxy uses Kp 8/9 and remains global. Post-storm depression uses
 reached 6 during the preceding 96 hours.
 
 `Max 3h` loads 37 five-minute AIDA analysis states. Each distinct time is
-downloaded once; all regional grid cells are calculated locally. The +3h and
-+6h columns use official SERENE AIDA forecast HDF5 products (periods 180 and
-360 minutes), not linear extrapolation.
+downloaded once; all regional grid cells are calculated locally.
+
+The +3h and +6h columns are prediction outputs. They may come from official
+SERENE AIDA forecasts when available, or from transparent dashboard-side
+fallback methods such as persistence or trend-based extrapolation. The forecast
+source is shown to avoid misrepresenting generated predictions as official
+SERENE outputs.
 
 SERENE AIDA does not currently provide amplitude scintillation S4, phase
 scintillation sigma-phi, 30 MHz riometer PCA, or solar-X-ray SWF inputs. The UI
@@ -83,7 +87,7 @@ After deployment:
 
 1. Click **Test SERENE API connection** and expect `Connected to SERENE AIDA raw-output API`.
 2. Load a small region and confirm AIDA maps appear.
-3. Confirm the table contains Latest, Max 3h, +3h and +6h columns.
+3. Confirm the table contains Latest, Max 3h, +3h, +6h and Forecast source columns.
 4. Confirm the categorical map uses only OK/MODERATE/SEVERE (plus grey
    unavailable cells).
 5. Compare 30-degree and 2-degree grids for the same analysis time. The number

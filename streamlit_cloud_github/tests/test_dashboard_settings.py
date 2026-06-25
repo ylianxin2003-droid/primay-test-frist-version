@@ -12,6 +12,7 @@ APP_PATH = PROJECT_ROOT / "app.py"
 CLIENT_PATH = PROJECT_ROOT / "serene_client.py"
 REQUIREMENTS_PATH = PROJECT_ROOT / "requirements.txt"
 ENV_EXAMPLE_PATH = PROJECT_ROOT / ".env.example"
+README_PATH = PROJECT_ROOT / "README.md"
 
 
 class DashboardSettingsTest(unittest.TestCase):
@@ -128,11 +129,31 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertIn("Demo / validation storm windows", app_source)
         self.assertNotIn("Historical risk windows", app_source)
 
-    def test_primary_forecast_uses_official_serene_products(self):
+    def test_prediction_columns_disclose_forecast_source(self):
         app_source = APP_PATH.read_text()
 
         self.assertNotIn("generate_risk_forecast", app_source)
-        self.assertIn("official AIDA +3h/+6h forecasts", app_source)
+        self.assertNotIn("Official product horizon", app_source)
+        self.assertIn("Prediction horizon", app_source)
+        self.assertIn("Forecast source: SERENE", app_source)
+        self.assertIn("dashboard-generated forecast", app_source)
+
+    def test_readme_explains_prediction_fallback_sources(self):
+        readme = README_PATH.read_text()
+        readme_one_line = readme.replace("\n", " ")
+
+        self.assertIn("The +3h and +6h columns are prediction outputs.", readme)
+        self.assertIn("official SERENE AIDA forecasts when available", readme_one_line)
+        self.assertIn("persistence or trend-based extrapolation", readme_one_line)
+        self.assertIn(
+            "source is shown to avoid misrepresenting generated predictions "
+            "as official",
+            readme_one_line,
+        )
+        self.assertNotIn(
+            "columns use official SERENE AIDA forecast HDF5 products",
+            readme,
+        )
 
 
 if __name__ == "__main__":
