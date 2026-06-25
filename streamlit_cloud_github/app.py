@@ -791,10 +791,6 @@ def _render_main(params: dict) -> None:
     st.caption(
         "SERENE-only ICAO-style research monitoring using official AIDA +3h/+6h forecasts."
     )
-    st.warning(
-        "This is an academic research prototype and must not be used for real "
-        "operational aviation decision-making."
-    )
 
     _render_cloud_api_hint()
 
