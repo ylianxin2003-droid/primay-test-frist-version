@@ -37,6 +37,8 @@ class IcaoProductBundle:
 
 
 AIDA_ARCHIVE_START_UTC = pd.Timestamp("2024-09-28T00:00:00Z")
+PSD_REFERENCE_EXPECTED_STATES = 30
+PSD_REFERENCE_MIN_STATES = 28
 
 
 def three_hour_aida_times(analysis_time: str) -> list[pd.Timestamp]:
@@ -116,6 +118,7 @@ def load_icao_products(
         )
     product_frames: list[pd.DataFrame] = []
     baseline_value_series: list[pd.Series] = []
+    baseline_download_failures = 0
 
     def report_progress(label: str) -> None:
         if progress_callback:
@@ -157,7 +160,8 @@ def load_icao_products(
         completed += 1
         report_progress("30-day PSD reference")
         if not ok or payload is None:
-            warnings.append(message)
+            baseline_download_failures += 1
+            logger.info("PSD baseline AIDA state unavailable: %s", message)
             continue
         analysis_downloads += 1
         try:
@@ -209,6 +213,24 @@ def load_icao_products(
         pd.concat(product_frames, ignore_index=True)
         if product_frames else pd.DataFrame()
     )
+    reference_state_count = len({
+        series.name for series in baseline_value_series if not series.empty
+    })
+    if baseline_times:
+        if reference_state_count >= PSD_REFERENCE_MIN_STATES:
+            missing = PSD_REFERENCE_EXPECTED_STATES - reference_state_count
+            if missing > 0:
+                warnings.append(
+                    f"PSD reference used {reference_state_count}/"
+                    f"{PSD_REFERENCE_EXPECTED_STATES} available SERENE AIDA "
+                    "states; missing reference files were skipped."
+                )
+        else:
+            warnings.append(
+                f"PSD unavailable: only {reference_state_count}/"
+                f"{PSD_REFERENCE_EXPECTED_STATES} SERENE AIDA reference "
+                "states were available."
+            )
     reference = _build_psd_reference(baseline_value_series)
     products = _attach_psd_reference(products, reference)
     kp_values = pd.Series(dtype=float)
@@ -248,6 +270,8 @@ def load_icao_products(
         "loaded_region": dict(region),
         "rolling_state_count": len(rolling_times),
         "baseline_state_count": len(baseline_times),
+        "baseline_reference_states_used": reference_state_count,
+        "baseline_download_failures": baseline_download_failures,
         "upstream_interpreter": (
             f"breid-phys/aida-ionosphere {UPSTREAM_AIDA_VERSION}"
         ),
@@ -310,14 +334,16 @@ def _baseline_value_series(
 
 def _build_psd_reference(
     baseline_values: list[pd.Series],
-    expected_states: int = 30,
+    expected_states: int = PSD_REFERENCE_EXPECTED_STATES,
+    min_states: int = PSD_REFERENCE_MIN_STATES,
 ) -> pd.DataFrame:
-    """Build a complete per-cell median from a compact 30-column matrix."""
+    """Build a per-cell median from the available 30-day reference matrix."""
     non_empty = [series for series in baseline_values if not series.empty]
-    if len({series.name for series in non_empty}) < expected_states:
+    required_states = min(expected_states, min_states)
+    if len({series.name for series in non_empty}) < required_states:
         return pd.DataFrame(columns=["lat", "lon", "reference_value"])
     matrix = pd.concat(non_empty, axis=1)
-    complete = matrix.notna().sum(axis=1) >= expected_states
+    complete = matrix.notna().sum(axis=1) >= required_states
     if not complete.any():
         return pd.DataFrame(columns=["lat", "lon", "reference_value"])
     reference = matrix.loc[complete].median(axis=1).rename("reference_value")

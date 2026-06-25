@@ -119,7 +119,7 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertEqual(set(bundle.products["product_kind"]), {"analysis", "rolling"})
         self.assertTrue(any("forecast 180 unavailable" in item for item in bundle.status.warnings))
 
-    def test_psd_reference_requires_all_30_daily_states(self):
+    def test_psd_reference_tolerates_two_missing_daily_states(self):
         import data_loader
 
         products = pd.DataFrame([
@@ -131,7 +131,35 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
                 "variable": "MUF3000F2",
                 "value": 10.0,
             }
-            for index in range(29)
+            for index in range(28)
+        ] + [{
+            "product_kind": "analysis",
+            "requested_time": pd.Timestamp("2026-06-01T12:00:00Z"),
+            "lat": 50.0,
+            "lon": 1.0,
+            "variable": "MUF3000F2",
+            "value": 7.0,
+        }])
+
+        result = data_loader._attach_psd_reference(products)
+
+        analysis = result[result["product_kind"] == "analysis"].iloc[0]
+        self.assertEqual(float(analysis["reference_value"]), 10.0)
+        self.assertAlmostEqual(float(analysis["psd_percent"]), 30.0)
+
+    def test_psd_reference_is_unavailable_when_too_many_daily_states_are_missing(self):
+        import data_loader
+
+        products = pd.DataFrame([
+            {
+                "product_kind": "baseline",
+                "requested_time": pd.Timestamp("2026-05-01T12:00:00Z") + pd.Timedelta(days=index),
+                "lat": 50.0,
+                "lon": 1.0,
+                "variable": "MUF3000F2",
+                "value": 10.0,
+            }
+            for index in range(27)
         ] + [{
             "product_kind": "analysis",
             "requested_time": pd.Timestamp("2026-06-01T12:00:00Z"),
@@ -202,6 +230,42 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertNotIn("baseline", captured["product_kinds"])
         self.assertIsInstance(captured["reference"], pd.DataFrame)
         self.assertEqual(float(captured["reference"].iloc[0]["reference_value"]), 30.0)
+
+    def test_loader_summarises_missing_psd_baseline_files(self):
+        import data_loader
+
+        class PartlyMissingBaselineClient(FakeRawClient):
+            def download_aida_raw_output(self, requested_time, latency):
+                parsed = pd.Timestamp(requested_time)
+                if parsed.date().isoformat() in {"2026-05-22", "2026-05-23"}:
+                    return (
+                        False,
+                        f"SERENE AIDA raw-output API returned status 404 for "
+                        f"product={latency}, file_type=raw, file_time={parsed:%Y-%m-%dT%H:%M:%S}. "
+                        '"Requested file is not available for download."',
+                        None,
+                    )
+                return super().download_aida_raw_output(requested_time, latency)
+
+        client = PartlyMissingBaselineClient()
+        with (
+            patch.object(data_loader, "SereneClient", return_value=client),
+            patch.object(data_loader, "calculate_aida_grid", side_effect=_fake_calculation),
+        ):
+            bundle = data_loader.load_icao_products(
+                analysis_time="2026-06-21T20:00:00Z",
+                variables=["MUF3000F2"],
+                region=GLOBAL_REGION,
+                grid_step=30,
+                include_three_hour_window=False,
+                include_psd_baseline=True,
+            )
+
+        warnings = "\n".join(bundle.status.warnings)
+        self.assertIn("PSD reference used 28/30 available SERENE AIDA states", warnings)
+        self.assertNotIn("raw-output API returned status 404", warnings)
+        self.assertEqual(bundle.status.metadata["baseline_download_failures"], 2)
+        self.assertFalse(bundle.products["psd_percent"].dropna().empty)
 
     def test_api_failure_does_not_fall_back_to_local_file(self):
         import data_loader
@@ -293,7 +357,7 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         )
         self.assertEqual(status.metadata["aida_dataset_downloads"], 1)
 
-    def test_archive_time_uses_final_product(self):
+    def test_archive_time_uses_rapid_product_for_five_minute_raw_states(self):
         import data_loader
 
         client = FakeRawClient()
@@ -303,7 +367,7 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         ):
             data_loader.load_data(start_time="2024-05-10T21:00:00Z")
 
-        self.assertEqual(client.download_requests[0][1], "final")
+        self.assertEqual(client.download_requests[0][1], "rapid")
 
     def test_indices_only_result_does_not_claim_aida_success(self):
         import data_loader
