@@ -181,8 +181,9 @@ def load_icao_products(
 
     for period in (180, 360):
         latency = _aida_latency(analysis)
+        forecast_time = analysis + pd.Timedelta(minutes=period)
         ok, message, payload = client.download_aida_forecast(
-            analysis.isoformat(), latency, period
+            forecast_time.isoformat(), latency, period
         )
         completed += 1
         report_progress(f"AIDA +{period // 60}h forecast")

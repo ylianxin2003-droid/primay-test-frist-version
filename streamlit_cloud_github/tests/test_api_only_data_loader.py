@@ -84,8 +84,8 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertEqual(len(client.download_requests), 37)
         self.assertEqual(len(set(client.download_requests)), 37)
         self.assertEqual(client.forecast_requests, [
-            ("2026-06-21T20:00:00+00:00", "ultra", 180),
-            ("2026-06-21T20:00:00+00:00", "ultra", 360),
+            ("2026-06-21T23:00:00+00:00", "ultra", 180),
+            ("2026-06-22T02:00:00+00:00", "ultra", 360),
         ])
         self.assertIn("analysis", set(bundle.products["product_kind"]))
         self.assertIn("rolling", set(bundle.products["product_kind"]))

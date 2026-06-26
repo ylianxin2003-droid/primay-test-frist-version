@@ -370,7 +370,7 @@ class SereneClient:
             "file_time": parsed.tz_convert("UTC").tz_localize(None).isoformat(),
             "product": latency,
             "file_type": "raw",
-            "period": period_minutes,
+            "forecast": period_minutes,
         }
         ok, message, content = self._request_aida_hdf5(
             endpoint=ENDPOINTS["aida_raw_forecast"],
@@ -698,12 +698,12 @@ def _describe_aida_request(request_data: dict[str, Any]) -> str:
         time_label = "latest"
     else:
         time_label = request_data.get("file_time", "unknown time")
-    period = request_data.get("period")
+    period = request_data.get("forecast")
     if period is None:
         return f"product={product}, file_type={file_type}, file_time={time_label}"
     return (
         f"product={product}, file_type={file_type}, "
-        f"file_time={time_label}, forecast_period={period} min"
+        f"file_time={time_label}, forecast={period} min"
     )
 
 

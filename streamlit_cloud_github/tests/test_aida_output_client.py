@@ -189,7 +189,7 @@ class AidaRawOutputClientTest(unittest.TestCase):
             "file_time": "2025-01-01T13:55:00",
             "product": "rapid",
             "file_type": "raw",
-            "period": 90,
+            "forecast": 90,
         })
 
     def test_forecast_rejects_latest_without_making_request(self):
