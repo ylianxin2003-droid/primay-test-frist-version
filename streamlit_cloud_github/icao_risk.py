@@ -221,20 +221,6 @@ def build_icao_summary(products, indices, eligible=False):
             "Not available from SERENE AIDA/Kp-ap inputs",
         ),
         _spatial_summary_row(product_frame, "HF COM", "Post-Storm Depression", eligible),
-        _unavailable_summary_row(
-            "Radiation",
-            "Effective Dose FL <= 460",
-            "Dose-rate threshold not supplied by SERENE",
-            "Dose-rate threshold not supplied by SERENE",
-            "Not available from SERENE AIDA/Kp-ap inputs",
-        ),
-        _unavailable_summary_row(
-            "Radiation",
-            "Effective Dose FL > 460",
-            "Dose-rate threshold not supplied by SERENE",
-            "Dose-rate threshold not supplied by SERENE",
-            "Not available from SERENE AIDA/Kp-ap inputs",
-        ),
     ]
     return pd.DataFrame(rows, columns=SUMMARY_COLUMNS)
 
@@ -262,16 +248,6 @@ def unavailable_indicator_rows():
             "Indicator": "Shortwave Fadeout",
             "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
         },
-        {
-            "Domain": "Radiation",
-            "Indicator": "Effective Dose FL <= 460",
-            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
-        },
-        {
-            "Domain": "Radiation",
-            "Indicator": "Effective Dose FL > 460",
-            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
-        },
     ])
 
 
@@ -282,14 +258,12 @@ def build_overall_risk_cards(summary):
         return {
             "GNSS Risk": "UNAVAILABLE",
             "HF COM Risk": "UNAVAILABLE",
-            "Radiation Risk": "UNAVAILABLE",
             "Overall Risk": "UNAVAILABLE",
         }
     cards = {}
     for domain, label in (
         ("GNSS", "GNSS Risk"),
         ("HF COM", "HF COM Risk"),
-        ("Radiation", "Radiation Risk"),
     ):
         statuses = frame.loc[frame["Domain"] == domain, "Status"].tolist()
         cards[label] = _worst_available_or_unavailable(statuses)

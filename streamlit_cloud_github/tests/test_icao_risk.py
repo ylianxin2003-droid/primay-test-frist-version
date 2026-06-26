@@ -211,8 +211,6 @@ class IcaoRiskTest(unittest.TestCase):
                 "Phase Scintillation",
                 "Polar Cap Absorption",
                 "Shortwave Fadeout",
-                "Effective Dose FL <= 460",
-                "Effective Dose FL > 460",
             ],
         )
         self.assertTrue(
@@ -332,11 +330,8 @@ class IcaoRiskTest(unittest.TestCase):
             "Polar Cap Absorption",
             "Shortwave Fadeout",
             "Post-Storm Depression",
-            "Effective Dose FL <= 460",
-            "Effective Dose FL > 460",
         })
         scint = summary.loc[summary["Indicator"] == "Amplitude Scintillation"].iloc[0]
-        radiation = summary.loc[summary["Indicator"] == "Effective Dose FL > 460"].iloc[0]
         tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
         psd = summary.loc[summary["Indicator"] == "Post-Storm Depression"].iloc[0]
         kp = summary.loc[summary["Indicator"] == "Auroral Absorption"].iloc[0]
@@ -344,7 +339,7 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(scint["Status"], "UNAVAILABLE")
         self.assertEqual(scint["Latest value"], "N/A")
         self.assertIn("not available", scint["Source / Availability"].lower())
-        self.assertEqual(radiation["Status"], "UNAVAILABLE")
+        self.assertNotIn("Radiation", set(summary["Domain"]))
         self.assertEqual(tec["Status"], "MODERATE")
         self.assertEqual(psd["Status"], "MODERATE")
         self.assertEqual(kp["Status"], "MODERATE")
@@ -463,14 +458,13 @@ class IcaoRiskTest(unittest.TestCase):
             {"Domain": "GNSS", "Status": "MODERATE"},
             {"Domain": "HF COM", "Status": "OK"},
             {"Domain": "HF COM", "Status": "SEVERE"},
-            {"Domain": "Radiation", "Status": "UNAVAILABLE"},
         ])
 
         cards = build_overall_risk_cards(summary)
 
         self.assertEqual(cards["GNSS Risk"], "MODERATE")
         self.assertEqual(cards["HF COM Risk"], "SEVERE")
-        self.assertEqual(cards["Radiation Risk"], "UNAVAILABLE")
+        self.assertNotIn("Radiation Risk", cards)
         self.assertEqual(cards["Overall Risk"], "SEVERE")
 
 

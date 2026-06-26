@@ -745,7 +745,6 @@ def _render_explanation_panels() -> None:
             - Phase scintillation
             - Polar Cap Absorption
             - Shortwave Fadeout
-            - Radiation dose indicators
             """
         )
     with st.expander("How Vertical TEC risk is classified"):
