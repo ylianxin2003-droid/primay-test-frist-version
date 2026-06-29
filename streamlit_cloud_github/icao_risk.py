@@ -187,68 +187,14 @@ def build_categorical_cells(
 
 
 def build_icao_summary(products, indices, eligible=False):
-    """Return a PECASUS-style table with available and unavailable indicators."""
+    """Return a PECASUS-style table for SERENE-supported indicators."""
     product_frame = _normalise_product_columns(_as_frame(products))
     rows = [
-        _unavailable_summary_row(
-            "GNSS",
-            "Amplitude Scintillation",
-            "S4 >= 0.5",
-            "S4 >= 0.8",
-            "Not available from SERENE AIDA/Kp-ap inputs",
-        ),
-        _unavailable_summary_row(
-            "GNSS",
-            "Phase Scintillation",
-            "sigma-phi >= 0.4",
-            "sigma-phi >= 0.7",
-            "Not available from SERENE AIDA/Kp-ap inputs",
-        ),
         _spatial_summary_row(product_frame, "GNSS", "Vertical TEC", eligible),
         _kp_summary_row(_as_frame(indices)),
-        _unavailable_summary_row(
-            "HF COM",
-            "Polar Cap Absorption",
-            "PCA >= 2 dB",
-            "PCA >= 5 dB",
-            "Not available from SERENE AIDA/Kp-ap inputs",
-        ),
-        _unavailable_summary_row(
-            "HF COM",
-            "Shortwave Fadeout",
-            "X-ray class >= X1",
-            "X-ray class >= X10",
-            "Not available from SERENE AIDA/Kp-ap inputs",
-        ),
         _spatial_summary_row(product_frame, "HF COM", "Post-Storm Depression", eligible),
     ]
     return pd.DataFrame(rows, columns=SUMMARY_COLUMNS)
-
-
-def unavailable_indicator_rows():
-    """List ICAO indicators that cannot currently be derived from SERENE."""
-    return pd.DataFrame([
-        {
-            "Domain": "GNSS",
-            "Indicator": "Amplitude Scintillation",
-            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
-        },
-        {
-            "Domain": "GNSS",
-            "Indicator": "Phase Scintillation",
-            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
-        },
-        {
-            "Domain": "HF COM",
-            "Indicator": "Polar Cap Absorption",
-            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
-        },
-        {
-            "Domain": "HF COM",
-            "Indicator": "Shortwave Fadeout",
-            "Source / Availability": "Not available from SERENE AIDA/Kp-ap inputs",
-        },
-    ])
 
 
 def build_overall_risk_cards(summary):
@@ -372,27 +318,6 @@ def _kp_summary_row(frame):
             if row is not None else
             "SERENE Kp/ap unavailable; global proxy, not regional"
         ),
-    }
-
-
-def _unavailable_summary_row(domain, indicator, moderate, severe, availability):
-    return {
-        "Domain": domain,
-        "Indicator": indicator,
-        "Moderate threshold": moderate,
-        "Severe threshold": severe,
-        "Time UTC": "N/A",
-        "Latest value": "N/A",
-        "Status": "UNAVAILABLE",
-        "Alert": _alert_icon("UNAVAILABLE"),
-        "Max-3h value": "N/A",
-        "Max-3h status": "UNAVAILABLE",
-        "+3h forecast": "N/A",
-        "+3h status": "UNAVAILABLE",
-        "+6h forecast": "N/A",
-        "+6h status": "UNAVAILABLE",
-        "Forecast source": "Unavailable",
-        "Source / Availability": availability,
     }
 
 

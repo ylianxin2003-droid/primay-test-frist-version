@@ -56,7 +56,8 @@ SERENE outputs.
 
 SERENE AIDA does not currently provide amplitude scintillation S4, phase
 scintillation sigma-phi, 30 MHz riometer PCA, or solar-X-ray SWF inputs. The UI
-marks them `Not available from SERENE` and never fabricates zero or `OK`.
+omits those unsupported products rather than displaying placeholder risk rows
+or fabricating zero or `OK`.
 
 Generated SWX text is deterministic and explicitly marked `STATUS: TEST` and
 `RESEARCH PROTOTYPE - NOT FOR OPERATIONAL USE`.

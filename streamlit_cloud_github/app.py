@@ -449,8 +449,8 @@ def _render_overall_risk_cards(summary: pd.DataFrame) -> None:
                 unsafe_allow_html=True,
             )
     st.caption(
-        "Worst available status is used: OK < MODERATE < SEVERE. Domains with no "
-        "SERENE-supported input remain UNAVAILABLE."
+        "Worst available status is used for supported GNSS and HF COM indicators: "
+        "OK < MODERATE < SEVERE."
     )
 
 
@@ -486,8 +486,8 @@ def _render_pecasus_summary_table() -> None:
     summary = st.session_state.icao_summary
     st.subheader("ICAO/PECASUS-style summary table")
     st.caption(
-        "This table deliberately includes unavailable indicators. UNAVAILABLE is "
-        "shown where SERENE does not provide the required input; no OK values are fabricated. "
+        "This table includes only SERENE-supported, derived, or proxy indicators. "
+        "UNAVAILABLE is shown only when a supported input could not be loaded; no OK values are fabricated. "
         "The Forecast source column distinguishes SERENE official forecasts from "
         "persistence or trend-based dashboard predictions."
     )
@@ -729,22 +729,15 @@ def _render_explanation_panels() -> None:
             generated predictions as official SERENE outputs.
             """
         )
-    with st.expander("Which ICAO/PECASUS-style indicators are available from SERENE"):
+    with st.expander("Which ICAO/PECASUS-style indicators this dashboard uses"):
         st.markdown(
             """
-            Available or derived from SERENE-only inputs:
+            Available, derived, or proxied from SERENE-only inputs:
 
             - Vertical TEC: directly from AIDA TEC/vTEC.
             - Post-Storm Depression: derived from AIDA MUF3000F2 against a
               same-UTC 30-day baseline when Full ICAO-style mode loads it.
             - Auroral Absorption: shown only as a global Kp-based proxy.
-
-            Not available from SERENE-only inputs:
-
-            - Amplitude scintillation
-            - Phase scintillation
-            - Polar Cap Absorption
-            - Shortwave Fadeout
             """
         )
     with st.expander("How Vertical TEC risk is classified"):

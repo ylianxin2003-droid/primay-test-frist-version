@@ -199,24 +199,6 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(kp["+3h forecast"], "N/A")
         self.assertEqual(kp["+6h forecast"], "N/A")
 
-    def test_unavailable_rows_state_serene_limitation(self):
-        from icao_risk import unavailable_indicator_rows
-
-        rows = unavailable_indicator_rows()
-
-        self.assertEqual(
-            list(rows["Indicator"]),
-            [
-                "Amplitude Scintillation",
-                "Phase Scintillation",
-                "Polar Cap Absorption",
-                "Shortwave Fadeout",
-            ],
-        )
-        self.assertTrue(
-            (rows["Source / Availability"].str.contains("Not available from SERENE")).all()
-        )
-
     def test_loader_product_kind_and_variables_map_to_icao_products(self):
         from icao_risk import build_categorical_cells, build_icao_summary
 
@@ -269,7 +251,7 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(psd["Latest value"], "N/A")
         self.assertEqual(psd["Status"], "UNAVAILABLE")
 
-    def test_summary_table_contains_all_pecasus_indicators_and_no_fake_ok(self):
+    def test_summary_table_contains_only_serene_supported_indicators(self):
         from icao_risk import build_icao_summary
 
         products = pd.DataFrame([
@@ -323,22 +305,18 @@ class IcaoRiskTest(unittest.TestCase):
             "Source / Availability",
         ])
         self.assertEqual(set(summary["Indicator"]), {
-            "Amplitude Scintillation",
-            "Phase Scintillation",
             "Vertical TEC",
             "Auroral Absorption",
-            "Polar Cap Absorption",
-            "Shortwave Fadeout",
             "Post-Storm Depression",
         })
-        scint = summary.loc[summary["Indicator"] == "Amplitude Scintillation"].iloc[0]
         tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
         psd = summary.loc[summary["Indicator"] == "Post-Storm Depression"].iloc[0]
         kp = summary.loc[summary["Indicator"] == "Auroral Absorption"].iloc[0]
 
-        self.assertEqual(scint["Status"], "UNAVAILABLE")
-        self.assertEqual(scint["Latest value"], "N/A")
-        self.assertIn("not available", scint["Source / Availability"].lower())
+        self.assertNotIn("Amplitude Scintillation", set(summary["Indicator"]))
+        self.assertNotIn("Phase Scintillation", set(summary["Indicator"]))
+        self.assertNotIn("Polar Cap Absorption", set(summary["Indicator"]))
+        self.assertNotIn("Shortwave Fadeout", set(summary["Indicator"]))
         self.assertNotIn("Radiation", set(summary["Domain"]))
         self.assertEqual(tec["Status"], "MODERATE")
         self.assertEqual(psd["Status"], "MODERATE")
