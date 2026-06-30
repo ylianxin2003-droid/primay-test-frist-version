@@ -166,7 +166,7 @@ class AidaRawOutputClientTest(unittest.TestCase):
         self.assertNotIn("crede", message)
         self.assertNotIn(self.client.token, message)
 
-    def test_forecast_request_matches_upstream_contract(self):
+    def test_forecast_request_matches_model_from_api_contract(self):
         response = _response()
         self.client._session.request = Mock(return_value=response)
 
@@ -189,7 +189,7 @@ class AidaRawOutputClientTest(unittest.TestCase):
             "file_time": "2025-01-01T13:55:00",
             "product": "rapid",
             "file_type": "raw",
-            "forecast": 90,
+            "period": 90,
         })
 
     def test_forecast_rejects_latest_without_making_request(self):
