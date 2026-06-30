@@ -317,7 +317,7 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertNotIn("Phase Scintillation", set(summary["Indicator"]))
         self.assertNotIn("Polar Cap Absorption", set(summary["Indicator"]))
         self.assertNotIn("Shortwave Fadeout", set(summary["Indicator"]))
-        self.assertNotIn("Radiation", set(summary["Domain"]))
+        self.assertEqual(set(summary["Domain"]), {"GNSS", "HF COM"})
         self.assertEqual(tec["Status"], "MODERATE")
         self.assertEqual(psd["Status"], "MODERATE")
         self.assertEqual(kp["Status"], "MODERATE")
@@ -442,7 +442,7 @@ class IcaoRiskTest(unittest.TestCase):
 
         self.assertEqual(cards["GNSS Risk"], "MODERATE")
         self.assertEqual(cards["HF COM Risk"], "SEVERE")
-        self.assertNotIn("Radiation Risk", cards)
+        self.assertEqual(set(cards), {"GNSS Risk", "HF COM Risk", "Overall Risk"})
         self.assertEqual(cards["Overall Risk"], "SEVERE")
 
 
