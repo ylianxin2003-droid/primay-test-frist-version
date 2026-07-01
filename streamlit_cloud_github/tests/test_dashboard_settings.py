@@ -132,6 +132,14 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertIn("Demo / validation storm windows", app_source)
         self.assertNotIn("Historical risk windows", app_source)
 
+    def test_event_windows_are_optional_shortcuts_not_time_locks(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertIn("Custom analysis time can be entered manually", app_source)
+        self.assertIn("Use selected event time", app_source)
+        self.assertIn("apply_event_time_sidebar", app_source)
+        self.assertIn("apply_event_time_main", app_source)
+
     def test_prediction_columns_disclose_forecast_source(self):
         app_source = APP_PATH.read_text()
 
