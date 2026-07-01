@@ -332,6 +332,8 @@ def _calculate_product_frame(
     if frame.empty:
         return frame
     frame = frame.copy()
+    valid_time = requested_time + pd.Timedelta(minutes=int(forecast_minutes))
+    frame["time"] = valid_time
     frame["product_kind"] = product_kind
     frame["requested_time"] = requested_time
     frame["forecast_minutes"] = int(forecast_minutes)

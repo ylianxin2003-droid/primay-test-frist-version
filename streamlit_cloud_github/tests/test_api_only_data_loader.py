@@ -65,6 +65,63 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertEqual(times[0], pd.Timestamp("2026-05-22T20:00:00Z"))
         self.assertEqual(times[-1], pd.Timestamp("2026-06-20T20:00:00Z"))
 
+    def test_product_frame_uses_requested_time_for_time_series(self):
+        import data_loader
+
+        upstream_time = pd.Timestamp("2000-01-01T00:00:00Z")
+        requested = pd.Timestamp("2025-01-01T17:55:00Z")
+        with patch.object(
+            data_loader,
+            "calculate_aida_grid",
+            return_value=pd.DataFrame([{
+                "time": upstream_time,
+                "lat": 50.0,
+                "lon": 1.0,
+                "variable": "TEC",
+                "value": 12.0,
+            }]),
+        ):
+            frame = data_loader._calculate_product_frame(
+                b"raw-state",
+                GLOBAL_REGION,
+                30,
+                ["TEC"],
+                product_kind="rolling",
+                requested_time=requested,
+            )
+
+        self.assertEqual(frame.iloc[0]["time"], requested)
+        self.assertEqual(frame.iloc[0]["requested_time"], requested)
+
+    def test_forecast_product_frame_uses_valid_time_for_time_series(self):
+        import data_loader
+
+        upstream_time = pd.Timestamp("2000-01-01T00:00:00Z")
+        analysis = pd.Timestamp("2025-01-01T17:55:00Z")
+        with patch.object(
+            data_loader,
+            "calculate_aida_grid",
+            return_value=pd.DataFrame([{
+                "time": upstream_time,
+                "lat": 50.0,
+                "lon": 1.0,
+                "variable": "TEC",
+                "value": 12.0,
+            }]),
+        ):
+            frame = data_loader._calculate_product_frame(
+                b"raw-state",
+                GLOBAL_REGION,
+                30,
+                ["TEC"],
+                product_kind="forecast_180",
+                requested_time=analysis,
+                forecast_minutes=180,
+            )
+
+        self.assertEqual(frame.iloc[0]["time"], analysis + pd.Timedelta(minutes=180))
+        self.assertEqual(frame.iloc[0]["requested_time"], analysis)
+
     def test_icao_products_use_one_download_per_time_and_official_forecasts(self):
         import data_loader
 
