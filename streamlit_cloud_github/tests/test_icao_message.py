@@ -20,7 +20,7 @@ class IcaoMessageTest(unittest.TestCase):
                 "lon_min": -15,
                 "lon_max": 15,
             },
-            "forecasts": {180: "MODERATE", 360: "OK"},
+            "forecasts": {90: "MODERATE", 180: "MODERATE", 360: "OK"},
             "generated_time": "2026-06-24T12:05:00Z",
             "advisory_number": "2026/001",
         }
@@ -41,6 +41,8 @@ class IcaoMessageTest(unittest.TestCase):
                 "ADVISORY NR: 2026/001",
                 "OBS SWX: 24/1200Z MOD USER-SELECTED BOUNDING BOX "
                 "LAT 45.00 TO 60.00, LON -15.00 TO 15.00",
+                "FCST SWX +90 MIN: 24/1330Z MOD USER-SELECTED BOUNDING BOX "
+                "LAT 45.00 TO 60.00, LON -15.00 TO 15.00",
                 "FCST SWX +3 HR: 24/1500Z MOD USER-SELECTED BOUNDING BOX "
                 "LAT 45.00 TO 60.00, LON -15.00 TO 15.00",
                 "FCST SWX +6 HR: 24/1800Z NO SWX EXP USER-SELECTED "
@@ -55,7 +57,7 @@ class IcaoMessageTest(unittest.TestCase):
         message = self._message(
             effect="HF COM",
             observed_category="SEVERE",
-            forecasts={180: "SEVERE", 360: "MODERATE"},
+            forecasts={90: "MODERATE", 180: "SEVERE", 360: "MODERATE"},
         )
 
         self.assertIn("SWX EFFECT: HF COM", message)
@@ -65,17 +67,18 @@ class IcaoMessageTest(unittest.TestCase):
     def test_ok_message_reports_no_space_weather_expected(self):
         message = self._message(
             observed_category="OK",
-            forecasts={180: "OK", 360: "OK"},
+            forecasts={90: "OK", 180: "OK", 360: "OK"},
         )
 
         self.assertIn("OBS SWX: 24/1200Z NO SWX EXP ", message)
-        self.assertEqual(message.count("NO SWX EXP"), 3)
+        self.assertEqual(message.count("NO SWX EXP"), 4)
 
     def test_missing_forecasts_are_not_reported_as_ok(self):
         message = self._message(forecasts={180: None})
 
         self.assertIn("FCST SWX +3 HR: NOT AVAILABLE", message)
         self.assertIn("FCST SWX +6 HR: NOT AVAILABLE", message)
+        self.assertIn("FCST SWX +90 MIN: NOT AVAILABLE", message)
         self.assertNotIn("FCST SWX +3 HR: 24/1500Z NO SWX EXP", message)
 
     def test_rejects_unsupported_effect(self):

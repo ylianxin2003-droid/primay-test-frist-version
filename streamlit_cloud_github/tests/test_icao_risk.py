@@ -158,6 +158,9 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(tec["Max-3h status"], "MODERATE")
         self.assertEqual(tec["+6h forecast"], 180.0)
         self.assertEqual(tec["+6h status"], "SEVERE")
+        self.assertEqual(tec["+90 min source"], "Dashboard-generated persistence forecast")
+        self.assertEqual(tec["+3h source"], "SERENE official forecast")
+        self.assertEqual(tec["+6h source"], "Dashboard-generated persistence forecast")
         self.assertEqual(kp["Latest value"], 8.5)
         self.assertEqual(kp["Status"], "MODERATE")
         self.assertEqual(kp["Max-3h value"], 8.5)
@@ -220,10 +223,9 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(psd_latest.iloc[0]["category"], "MODERATE")
         self.assertEqual(tec["Max-3h value"], 180)
         self.assertEqual(tec["+3h forecast"], 150)
-        self.assertEqual(
-            tec["Forecast source"],
-            "SERENE official forecast (+3h); Trend-based forecast (+6h)",
-        )
+        self.assertEqual(tec["+90 min source"], "Dashboard-generated trend-based forecast")
+        self.assertEqual(tec["+3h source"], "SERENE official forecast")
+        self.assertEqual(tec["+6h source"], "Dashboard-generated trend-based forecast")
 
     def test_missing_psd_baseline_never_treats_muf_mhz_as_percent(self):
         from icao_risk import build_categorical_cells, build_icao_summary
@@ -293,15 +295,20 @@ class IcaoRiskTest(unittest.TestCase):
             "Severe threshold",
             "Time UTC",
             "Latest value",
+            "Latest status",
             "Status",
             "Alert",
             "Max-3h value",
             "Max-3h status",
+            "+90 min forecast",
+            "+90 min status",
+            "+90 min source",
             "+3h forecast",
             "+3h status",
+            "+3h source",
             "+6h forecast",
             "+6h status",
-            "Forecast source",
+            "+6h source",
             "Source / Availability",
         ])
         self.assertEqual(set(summary["Indicator"]), {
@@ -322,7 +329,9 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(psd["Status"], "MODERATE")
         self.assertEqual(kp["Status"], "MODERATE")
         self.assertEqual(kp["+3h status"], "UNAVAILABLE")
-        self.assertEqual(kp["Forecast source"], "Unavailable")
+        self.assertEqual(kp["+90 min source"], "Unavailable")
+        self.assertEqual(kp["+3h source"], "Unavailable")
+        self.assertEqual(kp["+6h source"], "Unavailable")
 
     def test_summary_uses_trend_prediction_when_official_forecasts_missing(self):
         from icao_risk import build_categorical_cells, build_icao_summary
@@ -350,16 +359,25 @@ class IcaoRiskTest(unittest.TestCase):
 
         summary = build_icao_summary(products, pd.DataFrame(), eligible=False)
         tec = summary.loc[summary["Indicator"] == "Vertical TEC"].iloc[0]
+        plus90 = build_categorical_cells(products, "Vertical TEC", "+90 min")
         plus6 = build_categorical_cells(products, "Vertical TEC", "+6h")
 
+        self.assertEqual(tec["+90 min forecast"], 145.0)
+        self.assertEqual(tec["+90 min status"], "MODERATE")
         self.assertEqual(tec["+3h forecast"], 160.0)
         self.assertEqual(tec["+3h status"], "MODERATE")
         self.assertEqual(tec["+6h forecast"], 190.0)
         self.assertEqual(tec["+6h status"], "SEVERE")
-        self.assertEqual(tec["Forecast source"], "Trend-based forecast")
+        self.assertEqual(tec["+90 min source"], "Dashboard-generated trend-based forecast")
+        self.assertEqual(tec["+3h source"], "Dashboard-generated trend-based forecast")
+        self.assertEqual(tec["+6h source"], "Dashboard-generated trend-based forecast")
+        self.assertEqual(plus90.iloc[0]["display_value"], 145.0)
         self.assertEqual(plus6.iloc[0]["display_value"], 190.0)
         self.assertEqual(plus6.iloc[0]["category"], "SEVERE")
-        self.assertEqual(plus6.iloc[0]["product_state"], "trend-based forecast")
+        self.assertEqual(
+            plus6.iloc[0]["product_state"],
+            "dashboard-generated trend-based forecast",
+        )
 
     def test_summary_uses_persistence_prediction_without_three_hour_window(self):
         from icao_risk import build_categorical_cells, build_icao_summary
@@ -383,9 +401,14 @@ class IcaoRiskTest(unittest.TestCase):
         self.assertEqual(tec["+3h forecast"], 130.0)
         self.assertEqual(tec["+6h forecast"], 130.0)
         self.assertEqual(tec["+3h status"], "MODERATE")
-        self.assertEqual(tec["Forecast source"], "Persistence forecast")
+        self.assertEqual(tec["+90 min source"], "Dashboard-generated persistence forecast")
+        self.assertEqual(tec["+3h source"], "Dashboard-generated persistence forecast")
+        self.assertEqual(tec["+6h source"], "Dashboard-generated persistence forecast")
         self.assertEqual(plus3.iloc[0]["display_value"], 130.0)
-        self.assertEqual(plus3.iloc[0]["product_state"], "persistence forecast")
+        self.assertEqual(
+            plus3.iloc[0]["product_state"],
+            "dashboard-generated persistence forecast",
+        )
 
     def test_psd_prediction_fallback_keeps_kp_gate(self):
         from icao_risk import build_categorical_cells, build_icao_summary
@@ -424,7 +447,7 @@ class IcaoRiskTest(unittest.TestCase):
 
         self.assertEqual(psd["+3h forecast"], 50.0)
         self.assertEqual(psd["+3h status"], "SEVERE")
-        self.assertEqual(psd["Forecast source"], "Trend-based forecast")
+        self.assertEqual(psd["+3h source"], "Dashboard-generated trend-based forecast")
         self.assertEqual(gated_off.iloc[0]["category"], "OK")
         self.assertEqual(gated_on.iloc[0]["category"], "SEVERE")
 

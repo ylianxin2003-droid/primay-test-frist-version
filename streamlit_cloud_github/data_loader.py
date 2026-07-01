@@ -10,6 +10,7 @@ import pandas as pd
 
 from aida_adapter import UPSTREAM_AIDA_VERSION, calculate_aida_grid
 from aida_grid import AidaGridError, estimate_target_points
+from app_utils import AIDA_ARCHIVE_START_UTC
 from serene_client import SereneClient, normalise_aida_request_time
 
 logger = logging.getLogger(__name__)
@@ -36,9 +37,9 @@ class IcaoProductBundle:
     kp_storm_eligible: bool | None = None
 
 
-AIDA_ARCHIVE_START_UTC = pd.Timestamp("2024-09-28T00:00:00Z")
 PSD_REFERENCE_EXPECTED_STATES = 30
 PSD_REFERENCE_MIN_STATES = 28
+FORECAST_PERIODS = (90, 180, 360)
 
 
 def three_hour_aida_times(analysis_time: str) -> list[pd.Timestamp]:
@@ -103,10 +104,13 @@ def load_icao_products(
     if baseline_truncated:
         baseline_times = []
     client = SereneClient()
-    total_requests = len(rolling_times) + len(baseline_times) + 2
+    total_requests = len(rolling_times) + len(baseline_times) + len(FORECAST_PERIODS)
     completed = 0
     analysis_downloads = 0
+    rolling_analysis_downloads = 0
+    baseline_downloads = 0
     forecast_downloads = 0
+    forecast_request_audit: list[dict[str, Any]] = []
     warnings: list[str] = []
     if rolling_truncated:
         warnings.append(
@@ -137,6 +141,7 @@ def load_icao_products(
             warnings.append(message)
             continue
         analysis_downloads += 1
+        rolling_analysis_downloads += 1
         try:
             frame = _calculate_product_frame(
                 payload, region, grid_step, selected_variables,
@@ -166,6 +171,7 @@ def load_icao_products(
             logger.info("PSD baseline AIDA state unavailable: %s", message)
             continue
         analysis_downloads += 1
+        baseline_downloads += 1
         try:
             frame = _calculate_product_frame(
                 payload, region, grid_step, baseline_variables,
@@ -179,14 +185,23 @@ def load_icao_products(
             if not values.empty:
                 baseline_value_series.append(values)
 
-    for period in (180, 360):
+    for period in FORECAST_PERIODS:
         latency = _aida_latency(analysis)
         forecast_time = analysis + pd.Timedelta(minutes=period)
         ok, message, payload = client.download_aida_forecast(
             forecast_time.isoformat(), latency, period
         )
         completed += 1
-        report_progress(f"AIDA +{period // 60}h forecast")
+        forecast_label = _forecast_label(period)
+        report_progress(f"AIDA {forecast_label} forecast")
+        forecast_request_audit.append({
+            "analysis_time": analysis.isoformat(),
+            "valid_time": forecast_time.isoformat(),
+            "forecast_parameter": period,
+            "latency": latency,
+            "downloaded_from_serene": bool(ok and payload is not None),
+            "message": message,
+        })
         if not ok or payload is None:
             warnings.append(_forecast_unavailable_message(period, message))
             continue
@@ -198,7 +213,9 @@ def load_icao_products(
                 forecast_minutes=period,
             )
         except AidaGridError as exc:
-            warnings.append(f"Official AIDA +{period // 60}h forecast unavailable: {exc}")
+            warnings.append(f"Official AIDA {forecast_label} forecast unavailable: {exc}")
+            forecast_request_audit[-1]["downloaded_from_serene"] = False
+            forecast_request_audit[-1]["message"] = str(exc)
             continue
         if not frame.empty:
             product_frames.append(frame)
@@ -211,6 +228,7 @@ def load_icao_products(
     if not ok_indices:
         warnings.append(indices_message)
         indices = pd.DataFrame()
+    kp_ap_status = "loaded" if ok_indices and not indices.empty else "unavailable"
 
     products = (
         pd.concat(product_frames, ignore_index=True)
@@ -267,14 +285,21 @@ def load_icao_products(
     status.metadata = {
         "analysis_time": analysis.isoformat(),
         "analysis_downloads": analysis_downloads,
+        "rolling_analysis_downloads": rolling_analysis_downloads,
+        "baseline_downloads": baseline_downloads,
         "forecast_downloads": forecast_downloads,
+        "forecast_request_audit": forecast_request_audit,
         "local_map_points": local_map_points,
         "grid_step_degrees": float(grid_step),
         "loaded_region": dict(region),
+        "archive_start": AIDA_ARCHIVE_START_UTC.isoformat(),
         "rolling_state_count": len(rolling_times),
         "baseline_state_count": len(baseline_times),
         "baseline_reference_states_used": reference_state_count,
         "baseline_download_failures": baseline_download_failures,
+        "kp_ap_index_status": kp_ap_status,
+        "kp_ap_index_message": indices_message,
+        "total_official_aida_downloads": analysis_downloads + forecast_downloads,
         "upstream_interpreter": (
             f"breid-phys/aida-ionosphere {UPSTREAM_AIDA_VERSION}"
         ),
@@ -315,7 +340,7 @@ def _calculate_product_frame(
 
 def _forecast_unavailable_message(period_minutes: int, detail: str) -> str:
     """Summarise missing official forecast files without exposing raw API noise."""
-    hours = period_minutes // 60
+    label = _forecast_label(period_minutes)
     reason = "SERENE did not provide a downloadable forecast file for this analysis time."
     lower_detail = detail.lower()
     if "401" in detail or "403" in detail or "token" in lower_detail:
@@ -324,7 +349,14 @@ def _forecast_unavailable_message(period_minutes: int, detail: str) -> str:
         reason = "SERENE did not provide a downloadable forecast file for this analysis time."
     elif detail:
         reason = detail
-    return f"Official AIDA +{hours}h forecast unavailable: {reason}"
+    return f"Official AIDA {label} forecast unavailable: {reason}"
+
+
+def _forecast_label(period_minutes: int) -> str:
+    if period_minutes == 90:
+        return "+90 min"
+    hours = period_minutes // 60
+    return f"+{hours}h"
 
 
 def _baseline_value_series(

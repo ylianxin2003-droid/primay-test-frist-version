@@ -11,6 +11,7 @@ import streamlit as st
 from aida_grid import estimate_target_points
 from app_utils import (
     AIDA_ARCHIVE_START,
+    AIDA_ARCHIVE_START_UTC,
     advisory_metadata_for_load,
     build_data_preview,
     combine_date_time_iso,
@@ -24,6 +25,7 @@ from config import SERENE_API_TOKEN, reload_config, validate_config
 from data_loader import IcaoProductBundle, LoadStatus, load_icao_products
 from icao_message import generate_icao_message
 from icao_risk import (
+    FORECAST_HORIZONS,
     ICAO_COLORS,
     build_categorical_cells,
     build_icao_summary,
@@ -135,7 +137,7 @@ def _render_sidebar() -> dict:
         index=0,
         help=(
             "Quick Demo loads the latest analysis and uses +3h/+6h prediction "
-            "columns, preferring SERENE official forecasts when available and "
+            "columns, preferring SERENE official +90 min/+3h/+6h forecasts when available and "
             "otherwise using persistence. Full ICAO-style mode also loads the "
             "3-hour observation window and 30-day MUF3000F2 baseline for PSD."
         ),
@@ -144,9 +146,9 @@ def _render_sidebar() -> dict:
     params["include_three_hour_window"] = mode == "Full ICAO-style mode"
     params["include_psd_baseline"] = mode == "Full ICAO-style mode"
     if mode == "Quick Demo":
-        st.sidebar.caption("Fast mode: skips Max-3h window and PSD baseline.")
+        st.sidebar.caption("Fast mode: skips Max-3h window and PSD baseline; forecast files are still requested.")
     else:
-        st.sidebar.caption("Full mode: attempts Max-3h and 30-day PSD baseline.")
+        st.sidebar.caption("Full mode: attempts Max-3h and 30-day PSD baseline and may require many SERENE downloads.")
 
     _default_start, default_end = default_time_range()
     selected_date = st.session_state.get("end_date")
@@ -158,7 +160,7 @@ def _render_sidebar() -> dict:
         "The selected analysis time anchors the product; its preceding "
         "three-hour window is loaded automatically."
     )
-    st.sidebar.caption("AIDA regional archive begins at 2024-09-28 00:00 UTC.")
+    st.sidebar.caption(f"AIDA archive start: {AIDA_ARCHIVE_START_UTC.strftime('%Y-%m-%d %H:%M UTC')}.")
 
     analysis_date_col, analysis_time_col = st.sidebar.columns(2)
     with analysis_date_col:
@@ -354,7 +356,7 @@ def _apply_pending_time_range() -> None:
 
 def _render_connection_panel() -> None:
     st.subheader("SERENE API and data status")
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
 
     with c1:
         if st.session_state.api_connected is True:
@@ -371,16 +373,26 @@ def _render_connection_panel() -> None:
         st.metric("Rows loaded", f"{len(st.session_state.data):,}")
     with c4:
         st.metric(
-            "AIDA raw datasets downloaded",
-            int(status.metadata.get("aida_dataset_downloads", 0))
-            + int(status.metadata.get("analysis_downloads", 0))
-            + int(status.metadata.get("forecast_downloads", 0)),
+            "Total official AIDA downloads",
+            int(status.metadata.get(
+                "total_official_aida_downloads",
+                int(status.metadata.get("aida_dataset_downloads", 0))
+                + int(status.metadata.get("analysis_downloads", 0))
+                + int(status.metadata.get("forecast_downloads", 0)),
+            )),
         )
-    with c5:
-        st.metric(
-            "Local map points",
-            f"{int(status.metadata.get('local_map_points', 0)):,}",
-        )
+
+    s1, s2, s3, s4, s5 = st.columns(5)
+    with s1:
+        st.metric("Rolling/analysis states", int(status.metadata.get("rolling_analysis_downloads", 0)))
+    with s2:
+        st.metric("Official forecast states", int(status.metadata.get("forecast_downloads", 0)))
+    with s3:
+        st.metric("PSD baseline states", int(status.metadata.get("baseline_downloads", 0)))
+    with s4:
+        st.metric("Kp/ap index status", str(status.metadata.get("kp_ap_index_status", "not requested")))
+    with s5:
+        st.metric("Local map points", f"{int(status.metadata.get('local_map_points', 0)):,}")
 
     if status.message:
         if status.ok:
@@ -389,6 +401,12 @@ def _render_connection_panel() -> None:
             st.error(status.message)
     for warn in status.warnings:
         st.warning(warn)
+
+    if status.metadata:
+        st.caption(
+            "Each AIDA raw state is downloaded once per output time, then all "
+            "selected regional grid points are calculated locally."
+        )
 
 
 def _render_demo_validation_windows() -> None:
@@ -427,7 +445,7 @@ def _render_empty_state() -> None:
             1. Configure SERENE_API_BASE_URL and SERENE_API_TOKEN.
             2. Test the SERENE API connection.
             3. Load API data for an analysis time and selected region.
-            4. Inspect Latest, Max-3h, +3h, and +6h products.
+            4. Inspect Latest, Max-3h, +90 min, +3h, and +6h products.
             """
         )
 
@@ -458,7 +476,9 @@ def _style_pecasus_table(summary: pd.DataFrame):
     status_columns = [
         column for column in [
             "Status",
+            "Latest status",
             "Max-3h status",
+            "+90 min status",
             "+3h status",
             "+6h status",
         ] if column in summary.columns
@@ -488,8 +508,8 @@ def _render_pecasus_summary_table() -> None:
     st.caption(
         "This table includes only SERENE-supported, derived, or proxy indicators. "
         "UNAVAILABLE is shown only when a supported input could not be loaded; no OK values are fabricated. "
-        "The Forecast source column distinguishes SERENE official forecasts from "
-        "persistence or trend-based dashboard predictions."
+        "Each forecast horizon has its own source column to distinguish SERENE official forecasts "
+        "from dashboard-generated persistence or trend-based predictions."
     )
     if summary.empty:
         st.info("Load SERENE data to create the PECASUS-style table.")
@@ -515,7 +535,7 @@ def _render_categorical_risk_map() -> None:
     with horizon_col:
         horizon = st.radio(
             "Prediction horizon",
-            ["Latest", "+3h", "+6h"],
+            ["Latest", *FORECAST_HORIZONS.keys()],
             horizontal=True,
             key="risk_category_map_horizon",
         )
@@ -589,6 +609,7 @@ def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
             observed_category=tec["Status"],
             region=loaded_region,
             forecasts={
+                90: _available_category(tec["+90 min status"]),
                 180: _available_category(tec["+3h status"]),
                 360: _available_category(tec["+6h status"]),
             },
@@ -622,6 +643,7 @@ def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
         observed_category=hf_observed,
         region=loaded_region,
         forecasts={
+            90: _available_category(psd["+90 min status"]) if psd is not None else None,
             180: _available_category(psd["+3h status"]) if psd is not None else None,
             360: _available_category(psd["+6h status"]) if psd is not None else None,
         },
@@ -689,6 +711,56 @@ def _render_data_views(df: pd.DataFrame, alerts: pd.DataFrame) -> None:
         )
 
 
+def _forecast_audit_source(summary: pd.DataFrame, source_column: str) -> str:
+    if summary.empty or source_column not in summary.columns:
+        return "Unavailable"
+    sources = [
+        str(value) for value in summary[source_column].dropna().tolist()
+        if str(value) and str(value) != "Unavailable"
+    ]
+    if any(value == "SERENE official forecast" for value in sources):
+        return "SERENE official forecast"
+    if any(value == "Dashboard-generated trend-based forecast" for value in sources):
+        return "Dashboard-generated trend-based forecast"
+    if any(value == "Dashboard-generated persistence forecast" for value in sources):
+        return "Dashboard-generated persistence forecast"
+    return "Unavailable"
+
+
+def _render_forecast_request_audit(summary: pd.DataFrame) -> None:
+    status: LoadStatus = st.session_state.status
+    audit_rows = status.metadata.get("forecast_request_audit", [])
+    if not audit_rows:
+        return
+    source_columns = {
+        90: "+90 min source",
+        180: "+3h source",
+        360: "+6h source",
+    }
+    rows = []
+    for item in audit_rows:
+        period = int(item.get("forecast_parameter", 0))
+        rows.append({
+            "Selected analysis time": item.get("analysis_time", "N/A"),
+            "Forecast valid time": item.get("valid_time", "N/A"),
+            "SERENE forecast parameter": period,
+            "Latency": item.get("latency", "N/A"),
+            "Downloaded from SERENE": bool(item.get("downloaded_from_serene", False)),
+            "Forecast source": _forecast_audit_source(
+                summary, source_columns.get(period, "")
+            ),
+            "Request message": item.get("message", ""),
+        })
+    with st.expander("Forecast request audit", expanded=False):
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.caption(
+            "The forecast valid time is the analysis time plus the horizon. "
+            "The SERENE API request sends that valid time with forecast parameters "
+            "90, 180, or 360 minutes. If the official file is unavailable, the "
+            "dashboard labels any fallback category as dashboard-generated."
+        )
+
+
 def _render_global_indices(df: pd.DataFrame) -> None:
     """Show Kp/ap as planetary context without creating geographic map cells."""
     if "variable" not in df.columns:
@@ -714,7 +786,28 @@ def _render_global_indices(df: pd.DataFrame) -> None:
 
 
 def _render_explanation_panels() -> None:
-    st.subheader("Method and availability notes")
+    st.subheader("Method and limitations")
+    with st.expander("Method and limitations"):
+        st.markdown(
+            """
+            SERENE provides AIDA current, historical, and forecast model output.
+            The dashboard downloads raw AIDA states once per requested output time,
+            then calculates regional grid values locally with the official
+            `breid-phys/aida-ionosphere` interpreter.
+
+            TEC and MUF3000F2 come from AIDA. Risk categories are classified
+            locally using prototype thresholds. Post-Storm Depression is a
+            research proxy derived from MUF3000F2 relative depression against a
+            30-day same-UTC baseline when Full ICAO-style mode loads it.
+
+            Kp/ap are global planetary indices and are not plotted as regional
+            map cells. Official SERENE forecast data and dashboard-generated
+            fallback predictions are distinguished in the summary table, map
+            hover metadata, and forecast request audit.
+
+            This is an academic prototype and not for operational aviation decisions.
+            """
+        )
     with st.expander("What SERENE AIDA provides"):
         st.markdown(
             """
@@ -722,11 +815,10 @@ def _render_explanation_panels() -> None:
             This dashboard currently uses AIDA TEC/vTEC and MUF3000F2, plus
             SERENE Kp/ap indices as global geomagnetic context.
 
-            The +3h and +6h columns are prediction outputs. They may come from
-            official SERENE AIDA forecasts when available, or from transparent
-            dashboard-side fallback methods such as persistence or trend-based
-            extrapolation. The forecast source is shown to avoid misrepresenting
-            generated predictions as official SERENE outputs.
+            The +90 min, +3h and +6h columns are prediction outputs. They may
+            come from official SERENE AIDA forecasts when available, or from
+            transparent dashboard-side fallback methods such as persistence or
+            trend-based extrapolation.
             """
         )
     with st.expander("Which ICAO/PECASUS-style indicators this dashboard uses"):
@@ -826,6 +918,8 @@ def _render_main(params: dict) -> None:
     _render_explanation_panels()
     st.markdown("---")
     _render_connection_panel()
+    st.markdown("---")
+    _render_forecast_request_audit(summary)
     st.markdown("---")
     if not df.empty:
         _render_data_views(df, alerts)

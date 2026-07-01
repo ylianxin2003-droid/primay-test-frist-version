@@ -26,6 +26,7 @@ SERENE_API_BASE_URL: str = ""
 SERENE_API_TOKEN: str = ""
 SERENE_API_TIMEOUT: int = 30
 SERENE_AUTH_SCHEME: str = "Token"
+SERENE_AIDA_ARCHIVE_START: str = "2024-09-28T00:00:00Z"
 
 
 def _parse_timeout(value: object, default: int = 30) -> int:
@@ -57,7 +58,8 @@ def _load_env_file() -> None:
 
 def _read_os_env() -> None:
     """Read from OS environment (and values set by dotenv)."""
-    global SERENE_API_BASE_URL, SERENE_API_TOKEN, SERENE_API_TIMEOUT, SERENE_AUTH_SCHEME
+    global SERENE_API_BASE_URL, SERENE_API_TOKEN, SERENE_API_TIMEOUT
+    global SERENE_AUTH_SCHEME, SERENE_AIDA_ARCHIVE_START
 
     SERENE_API_BASE_URL = os.getenv("SERENE_API_BASE_URL", SERENE_API_BASE_URL).strip()
     SERENE_API_TOKEN = os.getenv("SERENE_API_TOKEN", SERENE_API_TOKEN).strip()
@@ -66,6 +68,10 @@ def _read_os_env() -> None:
     )
     SERENE_AUTH_SCHEME = (
         os.getenv("SERENE_AUTH_SCHEME", SERENE_AUTH_SCHEME).strip() or "Token"
+    )
+    SERENE_AIDA_ARCHIVE_START = (
+        os.getenv("SERENE_AIDA_ARCHIVE_START", SERENE_AIDA_ARCHIVE_START).strip()
+        or "2024-09-28T00:00:00Z"
     )
 
 
@@ -93,12 +99,14 @@ def _load_streamlit_secrets() -> None:
     except Exception:
         return
 
-    global SERENE_API_BASE_URL, SERENE_API_TOKEN, SERENE_API_TIMEOUT, SERENE_AUTH_SCHEME
+    global SERENE_API_BASE_URL, SERENE_API_TOKEN, SERENE_API_TIMEOUT
+    global SERENE_AUTH_SCHEME, SERENE_AIDA_ARCHIVE_START
 
     base = _get_secret(secrets, "SERENE_API_BASE_URL")
     token = _get_secret(secrets, "SERENE_API_TOKEN")
     timeout = _get_secret(secrets, "SERENE_API_TIMEOUT")
     scheme = _get_secret(secrets, "SERENE_AUTH_SCHEME")
+    archive_start = _get_secret(secrets, "SERENE_AIDA_ARCHIVE_START")
 
     if base:
         SERENE_API_BASE_URL = base
@@ -108,6 +116,8 @@ def _load_streamlit_secrets() -> None:
         SERENE_API_TIMEOUT = _parse_timeout(timeout)
     if scheme:
         SERENE_AUTH_SCHEME = scheme
+    if archive_start:
+        SERENE_AIDA_ARCHIVE_START = archive_start
 
 
 def reload_config() -> None:

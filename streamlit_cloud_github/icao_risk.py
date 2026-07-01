@@ -37,20 +37,30 @@ SUMMARY_COLUMNS = [
     "Severe threshold",
     "Time UTC",
     "Latest value",
+    "Latest status",
     "Status",
     "Alert",
     "Max-3h value",
     "Max-3h status",
+    "+90 min forecast",
+    "+90 min status",
+    "+90 min source",
     "+3h forecast",
     "+3h status",
+    "+3h source",
     "+6h forecast",
     "+6h status",
-    "Forecast source",
+    "+6h source",
     "Source / Availability",
 ]
 
 _SUPPORTED_INDICATORS = {"Vertical TEC", "Post-Storm Depression"}
-_SUPPORTED_MAP_HORIZONS = {"Latest", "+3h", "+6h"}
+FORECAST_HORIZONS = {
+    "+90 min": 90,
+    "+3h": 180,
+    "+6h": 360,
+}
+_SUPPORTED_MAP_HORIZONS = {"Latest", *FORECAST_HORIZONS.keys()}
 
 
 def classify_tec(value):
@@ -220,7 +230,7 @@ def build_overall_risk_cards(summary):
 def _spatial_summary_row(frame, domain, indicator, eligible):
     values = {}
     sources = []
-    for horizon in ("Latest", "Max3h", "+3h", "+6h"):
+    for horizon in ("Latest", "Max3h", *FORECAST_HORIZONS.keys()):
         selected = _regional_max(frame, indicator, horizon)
         values[horizon] = selected
         if selected is not None:
@@ -229,6 +239,7 @@ def _spatial_summary_row(frame, domain, indicator, eligible):
     latest = values["Latest"]
     latest_value = _indicator_value(latest, indicator)
     max3 = _indicator_value(values["Max3h"], indicator)
+    plus90 = _indicator_value(values["+90 min"], indicator)
     plus3 = _indicator_value(values["+3h"], indicator)
     plus6 = _indicator_value(values["+6h"], indicator)
     classifier = classify_tec if indicator == "Vertical TEC" else (
@@ -236,6 +247,7 @@ def _spatial_summary_row(frame, domain, indicator, eligible):
     )
     latest_status = classifier(latest_value) if latest_value is not None else "UNAVAILABLE"
     max3_status = classifier(max3) if max3 is not None else "UNAVAILABLE"
+    plus90_status = classifier(plus90) if plus90 is not None else "UNAVAILABLE"
     plus3_status = classifier(plus3) if plus3 is not None else "UNAVAILABLE"
     plus6_status = classifier(plus6) if plus6 is not None else "UNAVAILABLE"
     return {
@@ -245,17 +257,20 @@ def _spatial_summary_row(frame, domain, indicator, eligible):
         "Severe threshold": _severe_threshold(indicator),
         "Time UTC": _format_utc(latest.get("time")) if latest is not None else "N/A",
         "Latest value": _na(latest_value),
+        "Latest status": latest_status,
         "Status": latest_status,
         "Alert": _alert_icon(latest_status),
         "Max-3h value": _na(max3),
         "Max-3h status": max3_status,
+        "+90 min forecast": _na(plus90),
+        "+90 min status": plus90_status,
+        "+90 min source": _row_forecast_source(values["+90 min"]),
         "+3h forecast": _na(plus3),
         "+3h status": plus3_status,
+        "+3h source": _row_forecast_source(values["+3h"]),
         "+6h forecast": _na(plus6),
         "+6h status": plus6_status,
-        "Forecast source": _summary_forecast_source(
-            values["+3h"], values["+6h"]
-        ),
+        "+6h source": _row_forecast_source(values["+6h"]),
         "Source / Availability": (
             ", ".join(dict.fromkeys(sources))
             if sources else _availability_note(indicator, eligible)
@@ -304,15 +319,20 @@ def _kp_summary_row(frame):
         "Severe threshold": "Kp >= 9 global proxy",
         "Time UTC": _format_utc(row.get("time")) if row is not None else "N/A",
         "Latest value": _na(value),
+        "Latest status": status,
         "Status": status,
         "Alert": _alert_icon(status),
         "Max-3h value": _na(max3_value),
         "Max-3h status": max3_status,
+        "+90 min forecast": "N/A",
+        "+90 min status": "UNAVAILABLE",
+        "+90 min source": "Unavailable",
         "+3h forecast": "N/A",
         "+3h status": "UNAVAILABLE",
+        "+3h source": "Unavailable",
         "+6h forecast": "N/A",
         "+6h status": "UNAVAILABLE",
-        "Forecast source": "Unavailable",
+        "+6h source": "Unavailable",
         "Source / Availability": (
             _source_value(row.get("source")) + "; global Kp proxy, not regional"
             if row is not None else
@@ -351,10 +371,10 @@ def _rows_for_indicator_horizon(frame, indicator, horizon):
         & (frame["horizon"].map(_canonical_horizon) == canonical_horizon)
     ].copy()
     if not work.empty:
-        if canonical_horizon in {"+3h", "+6h"}:
+        if canonical_horizon in FORECAST_HORIZONS:
             work["forecast_source"] = "SERENE official forecast"
         return work
-    if canonical_horizon in {"+3h", "+6h"}:
+    if canonical_horizon in FORECAST_HORIZONS:
         return _fallback_prediction_rows(frame, indicator, canonical_horizon)
     return work
 
@@ -362,7 +382,7 @@ def _rows_for_indicator_horizon(frame, indicator, horizon):
 def _fallback_prediction_rows(frame, indicator, horizon):
     if frame.empty or not {"indicator", "horizon", "lat", "lon"}.issubset(frame.columns):
         return pd.DataFrame()
-    hours = 3 if horizon == "+3h" else 6
+    hours = FORECAST_HORIZONS[horizon] / 60.0
     work = frame[
         (frame["indicator"].map(_canonical_indicator) == indicator)
         & (frame["horizon"].map(_canonical_horizon).isin(["Latest", "Max3h"]))
@@ -402,25 +422,25 @@ def _fallback_prediction_rows(frame, indicator, horizon):
                     float(latest["_risk_value"]) - float(earliest["_risk_value"])
                 ) / 3.0
                 predicted = float(latest["_risk_value"]) + trend_per_hour * hours
-                forecast_source = "Trend-based forecast"
+                forecast_source = "Dashboard-generated trend-based forecast"
             else:
                 predicted = float(latest["_risk_value"])
-                forecast_source = "Persistence forecast"
+                forecast_source = "Dashboard-generated persistence forecast"
             latest["time"] = latest_time + pd.Timedelta(hours=hours)
         else:
             latest = group.iloc[-1].copy()
             predicted = float(latest["_risk_value"])
-            forecast_source = "Persistence forecast"
+            forecast_source = "Dashboard-generated persistence forecast"
 
         latest["horizon"] = horizon
         latest["forecast_source"] = forecast_source
         latest["product_kind"] = (
-            f"fallback_trend_{hours * 60}"
-            if forecast_source == "Trend-based forecast"
-            else f"fallback_persistence_{hours * 60}"
+            f"fallback_trend_{int(hours * 60)}"
+            if "trend-based" in forecast_source
+            else f"fallback_persistence_{int(hours * 60)}"
         )
         latest["source"] = (
-            f"Dashboard-generated {forecast_source.lower()} from SERENE analysis"
+            f"{forecast_source} from SERENE analysis"
         )
         if indicator == "Post-Storm Depression":
             latest["psd_percent"] = predicted
@@ -467,6 +487,7 @@ def _normalise_product_columns(frame):
             work["horizon"] = product_kinds.map({
                 "analysis": "Latest",
                 "rolling": "Max3h",
+                "forecast_90": "+90 min",
                 "forecast_180": "+3h",
                 "forecast_360": "+6h",
             }).fillna(product_kinds)
@@ -490,6 +511,10 @@ def _canonical_horizon(value):
         "latest": "Latest",
         "now": "Latest",
         "max3h": "Max3h",
+        "+90min": "+90 min",
+        "+90m": "+90 min",
+        "90min": "+90 min",
+        "+1.5h": "+90 min",
         "+3h": "+3h",
         "+6h": "+6h",
     }
@@ -546,7 +571,7 @@ def _product_state(item, horizon):
     if forecast_source is not None and not pd.isna(forecast_source):
         return str(forecast_source).casefold()
     product_kind = str(item.get("product_kind", "")).strip().casefold()
-    if product_kind.startswith("forecast_") or horizon in {"+3h", "+6h"}:
+    if product_kind.startswith("forecast_") or horizon in FORECAST_HORIZONS:
         return "official forecast"
     return "analysis"
 
@@ -591,28 +616,6 @@ def _alert_icon(status):
         "UNAVAILABLE": "—",
         "N/A": "—",
     }.get(str(status), "—")
-
-
-def _summary_forecast_source(plus3, plus6):
-    entries = []
-    for label, row in (("+3h", plus3), ("+6h", plus6)):
-        source = _row_forecast_source(row)
-        if source != "Unavailable":
-            entries.append((label, source))
-    if not entries:
-        return "Unavailable"
-    unique_sources = list(dict.fromkeys(source for _, source in entries))
-    if len(unique_sources) == 1 and len(entries) == 2:
-        return unique_sources[0]
-    parts = [f"{source} ({label})" for label, source in entries]
-    missing_labels = {
-        "+3h": plus3,
-        "+6h": plus6,
-    }
-    for label, row in missing_labels.items():
-        if row is None:
-            parts.append(f"Unavailable ({label})")
-    return "; ".join(parts)
 
 
 def _row_forecast_source(row):

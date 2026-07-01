@@ -27,7 +27,8 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertNotIn('"TOMIRIS"', app_source)
         self.assertNotIn("capped at {MAX_GRID_POINTS}", app_source)
         self.assertIn("Local map points", app_source)
-        self.assertIn("AIDA raw datasets downloaded", app_source)
+        self.assertIn("Rolling/analysis states", app_source)
+        self.assertIn("Official forecast states", app_source)
         self.assertIn("calculated locally", app_source)
         self.assertNotIn("output catalog", app_source.lower())
 
@@ -71,6 +72,7 @@ class DashboardSettingsTest(unittest.TestCase):
             "SERENE_API_BASE_URL=https://spaceweather.bham.ac.uk",
             example,
         )
+        self.assertIn("SERENE_AIDA_ARCHIVE_START=2024-09-28T00:00:00Z", example)
 
     def test_combine_date_time_to_iso8601(self):
         from app_utils import combine_date_time_iso
@@ -143,12 +145,12 @@ class DashboardSettingsTest(unittest.TestCase):
         readme = README_PATH.read_text()
         readme_one_line = readme.replace("\n", " ")
 
-        self.assertIn("The +3h and +6h columns are prediction outputs.", readme)
+        self.assertIn("The +90 min, +3h, and +6h columns are prediction outputs.", readme)
         self.assertIn("official SERENE AIDA forecasts when available", readme_one_line)
         self.assertIn("persistence or trend-based extrapolation", readme_one_line)
         self.assertIn(
-            "source is shown to avoid misrepresenting generated predictions "
-            "as official",
+            "Each horizon has its own source column to avoid misrepresenting "
+            "generated predictions as official",
             readme_one_line,
         )
         self.assertNotIn(

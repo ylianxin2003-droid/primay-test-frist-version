@@ -48,11 +48,11 @@ reached 6 during the preceding 96 hours.
 `Max 3h` loads 37 five-minute AIDA analysis states. Each distinct time is
 downloaded once; all regional grid cells are calculated locally.
 
-The +3h and +6h columns are prediction outputs. They may come from official
-SERENE AIDA forecasts when available, or from transparent dashboard-side
-fallback methods such as persistence or trend-based extrapolation. The forecast
-source is shown to avoid misrepresenting generated predictions as official
-SERENE outputs.
+The +90 min, +3h, and +6h columns are prediction outputs. They may come from
+official SERENE AIDA forecasts when available, or from transparent
+dashboard-side fallback methods such as persistence or trend-based
+extrapolation. Each horizon has its own source column to avoid misrepresenting
+generated predictions as official SERENE outputs.
 
 SERENE AIDA does not currently provide amplitude scintillation S4, phase
 scintillation sigma-phi, 30 MHz riometer PCA, or solar-X-ray SWF inputs. The UI
@@ -77,6 +77,7 @@ SERENE_API_BASE_URL = "https://spaceweather.bham.ac.uk"
 SERENE_API_TOKEN = "your-new-api-token"
 SERENE_API_TIMEOUT = "30"
 SERENE_AUTH_SCHEME = "Token"
+SERENE_AIDA_ARCHIVE_START = "2024-09-28T00:00:00Z"
 ```
 
 Any token pasted into chat, screenshots, commits, or public files must be
@@ -88,7 +89,7 @@ After deployment:
 
 1. Click **Test SERENE API connection** and expect `Connected to SERENE AIDA raw-output API`.
 2. Load a small region and confirm AIDA maps appear.
-3. Confirm the table contains Latest, Max 3h, +3h, +6h and Forecast source columns.
+3. Confirm the table contains Latest, Max 3h, +90 min, +3h, +6h and per-horizon source columns.
 4. Confirm the categorical map uses only OK/MODERATE/SEVERE (plus grey
    unavailable cells).
 5. Compare 30-degree and 2-degree grids for the same analysis time. The number

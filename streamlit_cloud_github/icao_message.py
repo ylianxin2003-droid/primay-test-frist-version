@@ -82,16 +82,16 @@ def generate_icao_message(
         ),
     ]
 
-    for period_minutes in (180, 360):
-        hours = period_minutes // 60
+    for period_minutes in (90, 180, 360):
+        label = "+90 MIN" if period_minutes == 90 else f"+{period_minutes // 60} HR"
         category = forecasts.get(period_minutes)
         if category is None:
-            lines.append(f"FCST SWX +{hours} HR: NOT AVAILABLE")
+            lines.append(f"FCST SWX {label}: NOT AVAILABLE")
             continue
 
         forecast_time = observed_timestamp + timedelta(minutes=period_minutes)
         lines.append(
-            f"FCST SWX +{hours} HR: {_format_icao_time(forecast_time)} "
+            f"FCST SWX {label}: {_format_icao_time(forecast_time)} "
             f"{_CATEGORY_TEXT[category]} {region_text}"
         )
 

@@ -84,15 +84,22 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertEqual(len(client.download_requests), 37)
         self.assertEqual(len(set(client.download_requests)), 37)
         self.assertEqual(client.forecast_requests, [
+            ("2026-06-21T21:30:00+00:00", "ultra", 90),
             ("2026-06-21T23:00:00+00:00", "ultra", 180),
             ("2026-06-22T02:00:00+00:00", "ultra", 360),
         ])
         self.assertIn("analysis", set(bundle.products["product_kind"]))
         self.assertIn("rolling", set(bundle.products["product_kind"]))
+        self.assertIn("forecast_90", set(bundle.products["product_kind"]))
         self.assertIn("forecast_180", set(bundle.products["product_kind"]))
         self.assertIn("forecast_360", set(bundle.products["product_kind"]))
         self.assertEqual(bundle.status.metadata["analysis_downloads"], 37)
-        self.assertEqual(bundle.status.metadata["forecast_downloads"], 2)
+        self.assertEqual(bundle.status.metadata["rolling_analysis_downloads"], 37)
+        self.assertEqual(bundle.status.metadata["forecast_downloads"], 3)
+        self.assertEqual(
+            [row["forecast_parameter"] for row in bundle.status.metadata["forecast_request_audit"]],
+            [90, 180, 360],
+        )
 
     def test_icao_products_keep_observations_when_forecasts_fail(self):
         import data_loader
@@ -117,6 +124,7 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
 
         self.assertFalse(bundle.products.empty)
         self.assertEqual(set(bundle.products["product_kind"]), {"analysis", "rolling"})
+        self.assertTrue(any("forecast 90 unavailable" in item for item in bundle.status.warnings))
         self.assertTrue(any("forecast 180 unavailable" in item for item in bundle.status.warnings))
 
     def test_psd_reference_tolerates_two_missing_daily_states(self):
