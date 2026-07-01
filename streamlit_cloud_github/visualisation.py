@@ -102,6 +102,7 @@ def create_time_series_plot(
             grouped, x=x_col, y="value", color="variable",
             title=title or "Ionospheric parameter over time",
             labels={"value": "Value", x_col: x_label, "variable": "Variable"},
+            markers=True,
         )
     else:
         fig = make_subplots(

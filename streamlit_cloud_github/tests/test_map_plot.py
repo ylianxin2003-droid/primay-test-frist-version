@@ -109,6 +109,20 @@ class MapPlotTest(unittest.TestCase):
         point_count = sum(len(trace.x) for trace in fig.data if hasattr(trace, "x"))
         self.assertEqual(point_count, 2)
 
+    def test_single_variable_time_series_uses_visible_markers(self):
+        from visualisation import create_time_series_plot
+
+        df = pd.DataFrame([{
+            "time": "2025-01-01T17:55:00Z",
+            "variable": "MUF3000F2",
+            "value": 15.2,
+        }])
+
+        fig = create_time_series_plot(df, variable="MUF3000F2")
+
+        self.assertTrue(fig.data)
+        self.assertIn("markers", fig.data[0].mode)
+
 
 if __name__ == "__main__":
     unittest.main()
