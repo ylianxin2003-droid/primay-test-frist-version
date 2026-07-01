@@ -17,6 +17,7 @@ from app_utils import (
     combine_date_time_iso,
     default_time_range,
     historical_risk_windows,
+    make_streamlit_safe_dataframe,
     mappable_variable_options,
     parse_select_range_to_widgets,
     validate_requested_window,
@@ -473,6 +474,7 @@ def _render_overall_risk_cards(summary: pd.DataFrame) -> None:
 
 
 def _style_pecasus_table(summary: pd.DataFrame):
+    summary = make_streamlit_safe_dataframe(summary)
     status_columns = [
         column for column in [
             "Status",
@@ -752,7 +754,11 @@ def _render_forecast_request_audit(summary: pd.DataFrame) -> None:
             "Request message": item.get("message", ""),
         })
     with st.expander("Forecast request audit", expanded=False):
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.dataframe(
+            make_streamlit_safe_dataframe(pd.DataFrame(rows)),
+            width="stretch",
+            hide_index=True,
+        )
         st.caption(
             "The forecast valid time is the analysis time plus the horizon. "
             "The SERENE API request sends that valid time with forecast parameters "

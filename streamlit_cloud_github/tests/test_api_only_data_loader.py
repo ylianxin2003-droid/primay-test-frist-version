@@ -155,7 +155,7 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertEqual(float(analysis["reference_value"]), 10.0)
         self.assertAlmostEqual(float(analysis["psd_percent"]), 30.0)
 
-    def test_psd_reference_is_unavailable_when_too_many_daily_states_are_missing(self):
+    def test_psd_reference_tolerates_three_missing_daily_states(self):
         import data_loader
 
         products = pd.DataFrame([
@@ -180,7 +180,8 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         result = data_loader._attach_psd_reference(products)
 
         analysis = result[result["product_kind"] == "analysis"].iloc[0]
-        self.assertTrue(pd.isna(analysis.get("psd_percent")))
+        self.assertEqual(float(analysis["reference_value"]), 10.0)
+        self.assertAlmostEqual(float(analysis["psd_percent"]), 30.0)
 
     def test_psd_reference_uses_30_day_median(self):
         import data_loader
@@ -273,6 +274,44 @@ class ApiOnlyDataLoaderTest(unittest.TestCase):
         self.assertIn("PSD reference used 28/30 available SERENE AIDA states", warnings)
         self.assertNotIn("raw-output API returned status 404", warnings)
         self.assertEqual(bundle.status.metadata["baseline_download_failures"], 2)
+        self.assertFalse(bundle.products["psd_percent"].dropna().empty)
+
+    def test_loader_uses_psd_baseline_with_twenty_seven_reference_states(self):
+        import data_loader
+
+        class ThreeMissingBaselineClient(FakeRawClient):
+            def download_aida_raw_output(self, requested_time, latency):
+                parsed = pd.Timestamp(requested_time)
+                if parsed.date().isoformat() in {
+                    "2026-05-22", "2026-05-23", "2026-05-24",
+                }:
+                    return (
+                        False,
+                        f"SERENE AIDA raw-output API returned status 404 for "
+                        f"product={latency}, file_type=raw, file_time={parsed:%Y-%m-%dT%H:%M:%S}. "
+                        '"Requested file is not available for download."',
+                        None,
+                    )
+                return super().download_aida_raw_output(requested_time, latency)
+
+        client = ThreeMissingBaselineClient()
+        with (
+            patch.object(data_loader, "SereneClient", return_value=client),
+            patch.object(data_loader, "calculate_aida_grid", side_effect=_fake_calculation),
+        ):
+            bundle = data_loader.load_icao_products(
+                analysis_time="2026-06-21T20:00:00Z",
+                variables=["MUF3000F2"],
+                region=GLOBAL_REGION,
+                grid_step=30,
+                include_three_hour_window=False,
+                include_psd_baseline=True,
+            )
+
+        warnings = "\n".join(bundle.status.warnings)
+        self.assertIn("PSD reference used 27/30 available SERENE AIDA states", warnings)
+        self.assertEqual(bundle.status.metadata["baseline_download_failures"], 3)
+        self.assertEqual(bundle.status.metadata["baseline_reference_states_used"], 27)
         self.assertFalse(bundle.products["psd_percent"].dropna().empty)
 
     def test_early_archive_window_skips_psd_and_summarises_missing_forecasts(self):

@@ -170,7 +170,7 @@ def build_data_preview(df: pd.DataFrame, alerts: pd.DataFrame) -> pd.DataFrame:
         if col not in preview.columns:
             preview[col] = ""
     if preview.empty or alerts.empty:
-        return preview
+        return make_streamlit_safe_dataframe(preview)
 
     for idx, row in preview.iterrows():
         match = _match_alert(row, alerts)
@@ -180,7 +180,35 @@ def build_data_preview(df: pd.DataFrame, alerts: pd.DataFrame) -> pd.DataFrame:
         preview.at[idx, "risk_level"] = match.get("risk_level", "")
         preview.at[idx, "alert_reason"] = match.get("reason", "")
         preview.at[idx, "possible_aviation_impact"] = match.get("possible_aviation_impact", "")
-    return preview
+    return make_streamlit_safe_dataframe(preview)
+
+
+def make_streamlit_safe_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a display-only frame with object values safe for Streamlit Arrow."""
+    if df.empty:
+        return df.copy()
+    safe = df.copy()
+    for column in safe.columns:
+        series = safe[column]
+        if pd.api.types.is_datetime64_any_dtype(series):
+            safe[column] = series.apply(_format_streamlit_value)
+        elif series.dtype == "object":
+            safe[column] = series.apply(_format_streamlit_value)
+    return safe
+
+
+def _format_streamlit_value(value: Any) -> Any:
+    if isinstance(value, (dict, list, tuple, set)):
+        return str(value)
+    if isinstance(value, pd.Timestamp):
+        timestamp = value
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_convert("UTC")
+            return timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    if value is None or pd.isna(value):
+        return ""
+    return value
 
 
 def mappable_variable_options(df: pd.DataFrame, contains_any: tuple[str, ...] = ()) -> list[str]:
