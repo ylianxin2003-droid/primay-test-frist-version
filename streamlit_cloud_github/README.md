@@ -96,6 +96,11 @@ Streamlit Cloud runtime writes are temporary. Generate cached outputs locally,
 review the files under `streamlit_cloud_github/data/trial_outputs/`, then commit
 them to GitHub.
 
+If Live SERENE API loading succeeds in Streamlit Cloud, use the dashboard's
+**Download cached trial output ZIP** button, then extract the ZIP so the
+`<cache_key>/` folder sits under `streamlit_cloud_github/data/trial_outputs/`
+before committing.
+
 ## Streamlit Community Cloud deployment
 
 The upstream package requires `pandas<2` and `numpy<2`. Deploy with **Python

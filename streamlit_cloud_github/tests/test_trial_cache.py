@@ -2,6 +2,8 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -106,6 +108,49 @@ class TrialCacheTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(FileNotFoundError):
                 trial_cache.load_trial_bundle("missing-key", base_dir=Path(tmpdir))
+
+    def test_cache_zip_contains_commit_ready_folder_without_secrets(self):
+        import trial_cache
+        from data_loader import IcaoProductBundle, LoadStatus
+
+        cache_key = "20250101T175500-Quick-Demo-test"
+        bundle = IcaoProductBundle(
+            products=pd.DataFrame([{
+                "time": pd.Timestamp("2025-01-01T17:55:00Z"),
+                "variable": "TEC",
+                "value": 12.0,
+            }]),
+            indices=pd.DataFrame([{
+                "time": pd.Timestamp("2025-01-01T17:55:00Z"),
+                "variable": "Kp",
+                "value": 8.0,
+            }]),
+            status=LoadStatus(
+                source="api",
+                ok=True,
+                message="Loaded from API",
+                metadata={
+                    "analysis_time": "2025-01-01T17:55:00+00:00",
+                    "SERENE_API_TOKEN": "must-not-be-written",
+                },
+            ),
+        )
+
+        archive_bytes = trial_cache.build_trial_bundle_zip(
+            cache_key,
+            bundle,
+            pd.DataFrame([{"Indicator": "Vertical TEC", "Status": "OK"}]),
+            bundle.products,
+        )
+
+        with zipfile.ZipFile(BytesIO(archive_bytes), "r") as archive:
+            names = set(archive.namelist())
+            self.assertIn(f"{cache_key}/status.json", names)
+            self.assertTrue(any(name.startswith(f"{cache_key}/products.") for name in names))
+            for name in names:
+                content = archive.read(name)
+                self.assertNotIn(b"SERENE_API_TOKEN", content)
+                self.assertNotIn(b"must-not-be-written", content)
 
     def test_generation_utility_uses_global_trial_windows(self):
         import generate_trial_outputs

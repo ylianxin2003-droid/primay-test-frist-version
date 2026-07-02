@@ -35,6 +35,7 @@ from icao_risk import (
 from icao_visualisation import create_icao_category_map
 from serene_client import SereneClient
 from trial_cache import (
+    build_trial_bundle_zip,
     load_trial_bundle,
     make_trial_cache_key,
     save_trial_bundle,
@@ -813,9 +814,27 @@ def _render_trial_cache_export(params: dict) -> None:
         st.caption(
             "Use this locally after a successful Live SERENE API load to write "
             "processed trial outputs into the repository. Streamlit Cloud runtime "
-            "writes are temporary; generate locally and commit the resulting files."
+            "writes are temporary; download the ZIP there, extract it under "
+            "streamlit_cloud_github/data/trial_outputs/, and commit the files."
         )
         st.code(str(trial_cache_path(cache_key)), language="text")
+        try:
+            cache_zip = build_trial_bundle_zip(
+                cache_key,
+                bundle,
+                st.session_state.icao_summary,
+                st.session_state.data,
+            )
+        except Exception as exc:
+            st.warning(f"Could not prepare cached trial output ZIP: {exc}")
+        else:
+            st.download_button(
+                "Download cached trial output ZIP",
+                data=cache_zip,
+                file_name=f"{cache_key}.zip",
+                mime="application/zip",
+                key="download_trial_cache_zip",
+            )
         if st.button("Save current result as cached trial output", key="save_trial_cache"):
             try:
                 saved_path = save_trial_bundle(

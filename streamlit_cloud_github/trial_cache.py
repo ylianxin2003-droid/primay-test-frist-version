@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
+import tempfile
+import zipfile
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -123,6 +126,29 @@ def save_trial_bundle(
     with (root / "status.json").open("w", encoding="utf-8") as handle:
         json.dump(status_payload, handle, indent=2, sort_keys=True, default=_json_default)
     return root
+
+
+def build_trial_bundle_zip(
+    cache_key: str,
+    bundle: IcaoProductBundle,
+    summary: pd.DataFrame,
+    data: pd.DataFrame,
+) -> bytes:
+    """Return a ZIP archive containing one cached trial-output folder."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = save_trial_bundle(
+            cache_key,
+            bundle,
+            summary,
+            data,
+            base_dir=Path(tmpdir),
+        )
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for file_path in sorted(root.rglob("*")):
+                if file_path.is_file():
+                    archive.write(file_path, file_path.relative_to(root.parent))
+        return output.getvalue()
 
 
 def _write_frame(root: Path, stem: str, frame: pd.DataFrame) -> str:
