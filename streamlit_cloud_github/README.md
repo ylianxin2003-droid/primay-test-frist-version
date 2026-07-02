@@ -1,4 +1,4 @@
-# Aviation Space Weather Risk Forecast Dashboard
+# Aviation Space Weather Dashboard Based on SERENE AIDA Data
 
 Streamlit dissertation prototype using authenticated SERENE AIDA ionospheric
 model outputs. It creates transparent, rule-based GNSS/HF risk indications from
@@ -23,6 +23,10 @@ Streamlit Secrets
 Changing the map extent or spacing changes only local calculation and plotting.
 It does not create one API request per point. Identical time/latency requests
 are deduplicated.
+
+The default grid is global, using latitude -90 to 90, longitude -180 to 180, and
+a 15 degree grid step for aviation-scale awareness. Users can still choose a
+smaller regional bounding box and finer grid step for regional analysis.
 
 ## Upstream scientific implementation
 
@@ -61,6 +65,20 @@ or fabricating zero or `OK`.
 
 Generated SWX text is deterministic and explicitly marked `STATUS: TEST` and
 `RESEARCH PROTOTYPE - NOT FOR OPERATIONAL USE`.
+
+## Cached trial outputs
+
+Selected demo / validation periods can be loaded from cached processed outputs
+stored in `data/trial_outputs/`. This speeds up presentations and validation by
+avoiding repeated SERENE downloads for known trial periods.
+
+The app starts with **Cached trial output** as the loading mode. If a matching
+cache folder does not exist, it falls back to **Live SERENE API** and shows a
+warning. Live SERENE API mode is still available for new analysis times.
+
+Cached outputs are research demonstration artifacts only. They must contain
+processed products, indices, summary tables, and status metadata only; never
+store SERENE API tokens, Streamlit secrets, raw credentials, or personal data.
 
 ## Streamlit Community Cloud deployment
 
@@ -103,3 +121,26 @@ python -m unittest discover -s tests -v
 ```
 
 No local scientific sample dataset is used as a silent fallback.
+
+## Main features
+
+- SERENE AIDA TEC and MUF3000F2 loading
+- Kp/ap geomagnetic context
+- GNSS risk from Vertical TEC
+- HF COM risk from Post-Storm Depression
+- ICAO/PECASUS-style summary table
+- Categorical risk maps
+- TEST SPWX research messages
+- Global default grid
+- Cached trial outputs for faster demonstration
+- Live SERENE API mode
+
+## Limitations
+
+- Research prototype only
+- Not for operational aviation use
+- No direct radiation dose product
+- No S4 / sigma-phi scintillation input from SERENE-only data
+- No direct PCA / SWF product from SERENE-only data
+- Forecasts may be official SERENE forecasts or clearly labelled
+  dashboard-generated fallback predictions

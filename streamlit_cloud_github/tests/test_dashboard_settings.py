@@ -140,6 +140,25 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertIn("apply_event_time_sidebar", app_source)
         self.assertIn("apply_event_time_main", app_source)
 
+    def test_app_defaults_to_global_grid_and_cache_mode(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertIn('st.number_input("Lat min", value=-90.0', app_source)
+        self.assertIn('st.number_input("Lat max", value=90.0', app_source)
+        self.assertIn('st.number_input("Lon min", value=-180.0', app_source)
+        self.assertIn('st.number_input("Lon max", value=180.0', app_source)
+        self.assertIn('st.slider("Grid step (degrees)", 2.0, 30.0, 15.0, 1.0)', app_source)
+        self.assertIn("The default grid is global for aviation-scale awareness", app_source)
+        self.assertIn("Cached trial output", app_source)
+        self.assertIn("Live SERENE API", app_source)
+
+    def test_app_mentions_cached_trial_outputs_in_method_text(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertIn("cached trial outputs", app_source.lower())
+        self.assertIn("Live SERENE API", app_source)
+        self.assertIn("Save current result as cached trial output", app_source)
+
     def test_prediction_columns_disclose_forecast_source(self):
         app_source = APP_PATH.read_text()
 

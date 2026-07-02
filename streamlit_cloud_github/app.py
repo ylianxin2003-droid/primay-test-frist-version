@@ -34,6 +34,12 @@ from icao_risk import (
 )
 from icao_visualisation import create_icao_category_map
 from serene_client import SereneClient
+from trial_cache import (
+    load_trial_bundle,
+    make_trial_cache_key,
+    save_trial_bundle,
+    trial_cache_path,
+)
 from visualisation import (
     create_map_plot,
     create_time_series_plot,
@@ -65,6 +71,7 @@ def _init_state() -> None:
         "api_connected": None,
         "api_message": "Not tested yet.",
         "config_warnings": validate_config(),
+        "trial_cache_key": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -127,7 +134,17 @@ def _render_sidebar() -> dict:
             for msg in st.session_state.config_warnings:
                 st.warning(msg)
 
-    st.sidebar.info("Data source: SERENE API")
+    data_loading_mode = st.sidebar.radio(
+        "Data loading mode",
+        ["Cached trial output", "Live SERENE API"],
+        index=0,
+        help=(
+            "Cached trial output loads processed demo/validation results from "
+            "the Git repository when available. Live SERENE API fetches new data."
+        ),
+    )
+    params["data_loading_mode"] = data_loading_mode
+    st.sidebar.info(f"Data loading mode: {data_loading_mode}")
     params["model"] = "AIDA"
     st.sidebar.caption("Verified model: AIDA")
 
@@ -215,11 +232,11 @@ def _render_sidebar() -> dict:
 
     st.sidebar.markdown("#### Region selection")
     with st.sidebar.expander("Bounding box and grid step", expanded=True):
-        lat_min = st.number_input("Lat min", value=45.0, min_value=-90.0, max_value=90.0)
-        lat_max = st.number_input("Lat max", value=60.0, min_value=-90.0, max_value=90.0)
-        lon_min = st.number_input("Lon min", value=-15.0, min_value=-180.0, max_value=180.0)
-        lon_max = st.number_input("Lon max", value=15.0, min_value=-180.0, max_value=180.0)
-        params["grid_step"] = st.slider("Grid step (degrees)", 2.0, 30.0, 5.0, 1.0)
+        lat_min = st.number_input("Lat min", value=-90.0, min_value=-90.0, max_value=90.0)
+        lat_max = st.number_input("Lat max", value=90.0, min_value=-90.0, max_value=90.0)
+        lon_min = st.number_input("Lon min", value=-180.0, min_value=-180.0, max_value=180.0)
+        lon_max = st.number_input("Lon max", value=180.0, min_value=-180.0, max_value=180.0)
+        params["grid_step"] = st.slider("Grid step (degrees)", 2.0, 30.0, 15.0, 1.0)
         local_points = estimate_target_points(
             {
                 "lat_min": lat_min,
@@ -228,6 +245,10 @@ def _render_sidebar() -> dict:
                 "lon_max": lon_max,
             },
             params["grid_step"],
+        )
+        st.caption(
+            "The default grid is global for aviation-scale awareness. Use a "
+            "smaller bounding box or finer grid step for regional analysis."
         )
         st.caption(
             f"Local map points: {local_points:,}. One raw AIDA state is downloaded "
@@ -257,6 +278,11 @@ def _render_sidebar() -> dict:
 
     st.sidebar.caption("Prototype research system, not for operational aviation decisions.")
     return params
+
+
+@st.cache_data(show_spinner=False)
+def _load_trial_bundle_cached(cache_key: str):
+    return load_trial_bundle(cache_key)
 
 
 def _do_load(params: dict) -> None:
@@ -292,48 +318,89 @@ def _do_load(params: dict) -> None:
             st.session_state.icao_bundle = IcaoProductBundle(status=failed_status)
             st.session_state.icao_summary = pd.DataFrame()
             return
+        cache_key = make_trial_cache_key(
+            params["end_time"],
+            params["region"],
+            params.get("grid_step", 15.0),
+            params.get("mode", "Quick Demo"),
+        )
+        st.session_state.trial_cache_key = cache_key
+        if params.get("data_loading_mode") == "Cached trial output":
+            try:
+                progress_bar.progress(0.2, text="Checking cached trial output...")
+                bundle, summary, data = _load_trial_bundle_cached(cache_key)
+                _set_loaded_result(bundle, summary, data)
+                return
+            except FileNotFoundError:
+                fallback_warning = (
+                    "Cached trial output not found for this selection; loading "
+                    "from SERENE API instead."
+                )
+            except Exception as exc:
+                fallback_warning = (
+                    "Cached trial output could not be loaded; loading from "
+                    f"SERENE API instead. Cache error: {exc}"
+                )
+        else:
+            fallback_warning = None
         bundle = load_icao_products(
             analysis_time=params["end_time"],
             variables=["TEC", "MUF3000F2"],
             region=params.get("region"),
-            grid_step=params.get("grid_step", 5.0),
+            grid_step=params.get("grid_step", 15.0),
             include_three_hour_window=params.get("include_three_hour_window", True),
             include_psd_baseline=params.get("include_psd_baseline", True),
             progress_callback=_on_api_progress,
         )
         progress_bar.progress(1.0, text="Generating ICAO-style research products...")
-        latest = pd.DataFrame()
-        if not bundle.products.empty:
-            latest = bundle.products[
-                bundle.products["product_kind"] == "analysis"
-            ].copy()
-        frames = [frame for frame in (latest, bundle.indices) if not frame.empty]
-        st.session_state.data = (
-            pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-        )
-        st.session_state.status = bundle.status
-        st.session_state.icao_bundle = bundle
-        st.session_state.icao_summary = build_icao_summary(
+        if fallback_warning:
+            bundle.status.warnings = [fallback_warning, *bundle.status.warnings]
+            bundle.status.metadata["cache_key"] = cache_key
+            bundle.status.metadata["cache_fallback"] = True
+        data = _build_display_data(bundle)
+        summary = build_icao_summary(
             bundle.products,
             bundle.indices,
             eligible=bundle.kp_storm_eligible,
         )
-        if bundle.status.ok:
-            generated = pd.Timestamp.now(tz="UTC")
-            advisory = advisory_metadata_for_load(
-                True, st.session_state.advisory_sequence, generated
-            )
-            st.session_state.advisory_sequence = advisory["sequence"]
-            st.session_state.advisory_generated_time = advisory["generated_time"]
-            st.session_state.advisory_number = advisory["number"]
+        _set_loaded_result(bundle, summary, data)
         st.session_state.alerts = pd.DataFrame()
     finally:
         progress_bar.empty()
 
 
+def _set_loaded_result(
+    bundle: IcaoProductBundle,
+    summary: pd.DataFrame,
+    data: pd.DataFrame,
+) -> None:
+    st.session_state.data = data
+    st.session_state.status = bundle.status
+    st.session_state.icao_bundle = bundle
+    st.session_state.icao_summary = summary
+    if bundle.status.ok:
+        generated = pd.Timestamp.now(tz="UTC")
+        advisory = advisory_metadata_for_load(
+            True, st.session_state.advisory_sequence, generated
+        )
+        st.session_state.advisory_sequence = advisory["sequence"]
+        st.session_state.advisory_generated_time = advisory["generated_time"]
+        st.session_state.advisory_number = advisory["number"]
+
+
+def _build_display_data(bundle: IcaoProductBundle) -> pd.DataFrame:
+    """Return all product rows used by raw preview and time-series views."""
+    frames = [
+        frame for frame in (bundle.products, bundle.indices)
+        if frame is not None and not frame.empty
+    ]
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def _source_label(status: LoadStatus) -> str:
     return {
-        "api": "SERENE API",
+        "api": "Live SERENE API",
+        "trial_cache": "Cached trial output",
         "indices": "SERENE global indices only",
         "none": "No data",
     }.get(status.source, status.source)
@@ -442,10 +509,11 @@ def _render_demo_validation_windows() -> None:
 
 def _render_empty_state() -> None:
     st.info(
-        "Click Load / Refresh data in the sidebar to fetch live SERENE API data. "
+        "Click Load / Refresh data in the sidebar to load cached trial output "
+        "when available, or fetch Live SERENE API data for new analysis times. "
         "Each raw AIDA state is downloaded once per output time and interpreted by "
         "the official AIDA package; all requested map points are calculated locally. "
-        "No local sample dataset is used."
+        "Cached trial outputs store processed research results for demonstration."
     )
     st.subheader("ICAO-style SERENE-only products")
     st.info(
@@ -575,20 +643,25 @@ def _render_categorical_risk_map() -> None:
 def _render_raw_value_maps(df: pd.DataFrame) -> None:
     st.subheader("Raw variable maps")
     st.caption(
-        "Raw AIDA maps use continuous colour scales. These are data-value maps, "
-        "not warning category maps."
+        "Raw AIDA maps use latest analysis values and continuous colour scales. "
+        "These are data-value maps, not warning category maps."
     )
+    map_df = df
+    if "product_kind" in df.columns:
+        analysis_rows = df[df["product_kind"] == "analysis"].copy()
+        if not analysis_rows.empty:
+            map_df = analysis_rows
     options = [
         variable for variable in ["TEC", "vTEC", "MUF3000F2", "MUF3000"]
-        if variable in set(df.get("variable", pd.Series(dtype=str)).astype(str))
+        if variable in set(map_df.get("variable", pd.Series(dtype=str)).astype(str))
     ]
     if not options:
-        options = mappable_variable_options(df)
+        options = mappable_variable_options(map_df)
     if not options:
         st.info("No SERENE AIDA variables with latitude/longitude are available for raw maps.")
         return
     selected_map_var = st.selectbox("Raw value map", options, key="raw_value_map_variable")
-    st.plotly_chart(create_map_plot(df, variable=selected_map_var), width="stretch")
+    st.plotly_chart(create_map_plot(map_df, variable=selected_map_var), width="stretch")
     if selected_map_var in {"MUF3000F2", "MUF3000"}:
         st.caption(
             "MUF3000F2 is shown only as a raw value. PSD risk is derived from its "
@@ -725,6 +798,39 @@ def _render_data_views(df: pd.DataFrame, alerts: pd.DataFrame) -> None:
         )
 
 
+def _render_trial_cache_export(params: dict) -> None:
+    status: LoadStatus = st.session_state.status
+    bundle: IcaoProductBundle = st.session_state.icao_bundle
+    if not status.ok or bundle.products.empty:
+        return
+    cache_key = st.session_state.trial_cache_key or make_trial_cache_key(
+        params["end_time"],
+        params["region"],
+        params.get("grid_step", 15.0),
+        params.get("mode", "Quick Demo"),
+    )
+    with st.expander("Cached trial output tools", expanded=False):
+        st.caption(
+            "Use this locally after a successful Live SERENE API load to write "
+            "processed trial outputs into the repository. Streamlit Cloud runtime "
+            "writes are temporary; generate locally and commit the resulting files."
+        )
+        st.code(str(trial_cache_path(cache_key)), language="text")
+        if st.button("Save current result as cached trial output", key="save_trial_cache"):
+            try:
+                saved_path = save_trial_bundle(
+                    cache_key,
+                    bundle,
+                    st.session_state.icao_summary,
+                    st.session_state.data,
+                )
+            except Exception as exc:
+                st.error(f"Could not save cached trial output: {exc}")
+            else:
+                _load_trial_bundle_cached.clear()
+                st.success(f"Saved cached trial output to {saved_path}")
+
+
 def _forecast_audit_source(summary: pd.DataFrame, source_column: str) -> str:
     if summary.empty or source_column not in summary.columns:
         return "Unavailable"
@@ -813,6 +919,10 @@ def _render_explanation_panels() -> None:
             then calculates regional grid values locally with the official
             `breid-phys/aida-ionosphere` interpreter.
 
+            The default grid is global for aviation-scale awareness. Users can
+            still choose a smaller bounding box or finer grid step for regional
+            analysis.
+
             TEC and MUF3000F2 come from AIDA. Risk categories are classified
             locally using prototype thresholds. Post-Storm Depression is a
             research proxy derived from MUF3000F2 relative depression against a
@@ -822,6 +932,11 @@ def _render_explanation_panels() -> None:
             map cells. Official SERENE forecast data and dashboard-generated
             fallback predictions are distinguished in the summary table, map
             hover metadata, and forecast request audit.
+
+            Cached trial outputs may be used for selected demo / validation
+            periods to avoid repeated SERENE downloads during presentations.
+            Live SERENE API loading is still available for new analysis times.
+            Cached outputs are only for research demonstration and validation.
 
             This is an academic prototype and not for operational aviation decisions.
             """
@@ -936,6 +1051,8 @@ def _render_main(params: dict) -> None:
     _render_explanation_panels()
     st.markdown("---")
     _render_connection_panel()
+    st.markdown("---")
+    _render_trial_cache_export(params)
     st.markdown("---")
     _render_forecast_request_audit(summary)
     st.markdown("---")

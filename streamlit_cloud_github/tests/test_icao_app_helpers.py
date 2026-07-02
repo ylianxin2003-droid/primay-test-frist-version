@@ -47,6 +47,40 @@ class IcaoAppHelpersTest(unittest.TestCase):
             "number": None,
         })
 
+    def test_display_data_keeps_rolling_products_for_time_series(self):
+        from app import _build_display_data
+        from data_loader import IcaoProductBundle, LoadStatus
+
+        products = pd.DataFrame([
+            {
+                "time": "2025-01-01T17:50:00Z",
+                "variable": "TEC",
+                "value": 11.0,
+                "product_kind": "rolling",
+            },
+            {
+                "time": "2025-01-01T17:55:00Z",
+                "variable": "TEC",
+                "value": 12.0,
+                "product_kind": "analysis",
+            },
+        ])
+        indices = pd.DataFrame([{
+            "time": "2025-01-01T17:55:00Z",
+            "variable": "Kp",
+            "value": 8.0,
+        }])
+        bundle = IcaoProductBundle(
+            products=products,
+            indices=indices,
+            status=LoadStatus(source="api", ok=True, message="loaded"),
+        )
+
+        display = _build_display_data(bundle)
+
+        self.assertEqual(len(display), 3)
+        self.assertIn("rolling", set(display["product_kind"].dropna()))
+
     def test_streamlit_app_starts_without_exception(self):
         from streamlit.testing.v1 import AppTest
 

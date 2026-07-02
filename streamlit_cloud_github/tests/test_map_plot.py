@@ -123,6 +123,35 @@ class MapPlotTest(unittest.TestCase):
         self.assertTrue(fig.data)
         self.assertIn("markers", fig.data[0].mode)
 
+    def test_time_series_keeps_multiple_product_times(self):
+        from visualisation import create_time_series_plot
+
+        df = pd.DataFrame([
+            {
+                "time": "2025-01-01T17:45:00Z",
+                "variable": "TEC",
+                "value": 10.0,
+                "product_kind": "rolling",
+            },
+            {
+                "time": "2025-01-01T17:50:00Z",
+                "variable": "TEC",
+                "value": 11.0,
+                "product_kind": "rolling",
+            },
+            {
+                "time": "2025-01-01T17:55:00Z",
+                "variable": "TEC",
+                "value": 12.0,
+                "product_kind": "analysis",
+            },
+        ])
+
+        fig = create_time_series_plot(df, variable="TEC")
+
+        point_count = sum(len(trace.x) for trace in fig.data if hasattr(trace, "x"))
+        self.assertEqual(point_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()
