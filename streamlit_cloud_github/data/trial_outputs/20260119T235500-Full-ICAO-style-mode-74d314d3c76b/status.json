@@ -1,0 +1,67 @@
+{
+  "files": {
+    "data": "data.parquet",
+    "indices": "indices.parquet",
+    "products": "products.parquet",
+    "summary": "summary.csv"
+  },
+  "kp_storm_eligible": true,
+  "status": {
+    "message": "Loaded SERENE AIDA observations and available prediction inputs.",
+    "metadata": {
+      "analysis_downloads": 64,
+      "analysis_time": "2026-01-19T23:55:00+00:00",
+      "archive_start": "2024-09-28T00:00:00+00:00",
+      "baseline_download_failures": 3,
+      "baseline_downloads": 27,
+      "baseline_reference_states_used": 27,
+      "baseline_state_count": 30,
+      "forecast_downloads": 3,
+      "forecast_request_audit": [
+        {
+          "analysis_time": "2026-01-19T23:55:00+00:00",
+          "downloaded_from_serene": true,
+          "forecast_parameter": 90,
+          "latency": "ultra",
+          "message": "Downloaded AIDA raw forecast for 2026-01-20T01:25:00+00:00 (90 minutes).",
+          "valid_time": "2026-01-20T01:25:00+00:00"
+        },
+        {
+          "analysis_time": "2026-01-19T23:55:00+00:00",
+          "downloaded_from_serene": true,
+          "forecast_parameter": 180,
+          "latency": "ultra",
+          "message": "Downloaded AIDA raw forecast for 2026-01-20T02:55:00+00:00 (180 minutes).",
+          "valid_time": "2026-01-20T02:55:00+00:00"
+        },
+        {
+          "analysis_time": "2026-01-19T23:55:00+00:00",
+          "downloaded_from_serene": true,
+          "forecast_parameter": 360,
+          "latency": "ultra",
+          "message": "Downloaded AIDA raw forecast for 2026-01-20T05:55:00+00:00 (360 minutes).",
+          "valid_time": "2026-01-20T05:55:00+00:00"
+        }
+      ],
+      "grid_step_degrees": 15.0,
+      "kp_ap_index_message": "Loaded 64 Kp/ap row(s) from SERENE API.",
+      "kp_ap_index_status": "loaded",
+      "loaded_region": {
+        "lat_max": 90.0,
+        "lat_min": -90.0,
+        "lon_max": 180.0,
+        "lon_min": -180.0
+      },
+      "local_map_points": 325,
+      "rolling_analysis_downloads": 37,
+      "rolling_state_count": 37,
+      "total_official_aida_downloads": 67,
+      "upstream_interpreter": "breid-phys/aida-ionosphere v0.1.3"
+    },
+    "ok": true,
+    "source": "api",
+    "warnings": [
+      "PSD reference used 27/30 available SERENE AIDA states; missing reference files were skipped."
+    ]
+  }
+}
