@@ -107,6 +107,20 @@ class TrialCacheTest(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 trial_cache.load_trial_bundle("missing-key", base_dir=Path(tmpdir))
 
+    def test_generation_utility_uses_global_trial_windows(self):
+        import generate_trial_outputs
+
+        times = generate_trial_outputs._analysis_times()
+
+        self.assertIn("2024-10-11T02:55:00", times)
+        self.assertIn("2026-01-19T23:55:00", times)
+        self.assertEqual(generate_trial_outputs.GLOBAL_REGION, {
+            "lat_min": -90.0,
+            "lat_max": 90.0,
+            "lon_min": -180.0,
+            "lon_max": 180.0,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

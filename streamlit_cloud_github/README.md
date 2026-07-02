@@ -80,6 +80,22 @@ Cached outputs are research demonstration artifacts only. They must contain
 processed products, indices, summary tables, and status metadata only; never
 store SERENE API tokens, Streamlit secrets, raw credentials, or personal data.
 
+To generate cache folders locally with a valid SERENE API token:
+
+```bash
+python streamlit_cloud_github/generate_trial_outputs.py --mode "Quick Demo"
+```
+
+For the slower full research product, use:
+
+```bash
+python streamlit_cloud_github/generate_trial_outputs.py --mode "Full ICAO-style mode"
+```
+
+Streamlit Cloud runtime writes are temporary. Generate cached outputs locally,
+review the files under `streamlit_cloud_github/data/trial_outputs/`, then commit
+them to GitHub.
+
 ## Streamlit Community Cloud deployment
 
 The upstream package requires `pandas<2` and `numpy<2`. Deploy with **Python
