@@ -24,6 +24,11 @@ from app_utils import (
 )
 from config import SERENE_API_TOKEN, reload_config, validate_config
 from data_loader import IcaoProductBundle, LoadStatus, load_icao_products
+from hf_coverage import (
+    DEFAULT_UK_TRANSMITTER,
+    build_hf_coverage_case,
+    create_hf_coverage_map,
+)
 from icao_message import generate_icao_message
 from icao_risk import (
     FORECAST_HORIZONS,
@@ -670,6 +675,92 @@ def _render_raw_value_maps(df: pd.DataFrame) -> None:
         )
 
 
+def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
+    st.subheader("HF propagation case study")
+    st.caption(
+        "Engineering demonstration inspired by Trace HF ray-tracing workflows. "
+        "This uses MUF3000F2 and an assumed PSD depression to show how HF coverage "
+        "may change. It is a MUF-threshold demonstration, not an operational "
+        "ray-tracing product."
+    )
+
+    control_col, psd_col, source_col = st.columns([1, 1, 1.2])
+    with control_col:
+        frequency_mhz = st.slider(
+            "HF frequency for coverage demo (MHz)",
+            3.0,
+            30.0,
+            10.0,
+            0.5,
+            key="hf_case_frequency_mhz",
+        )
+    with psd_col:
+        psd_percent = st.slider(
+            "Storm MUF depression used in demo (%)",
+            0.0,
+            70.0,
+            30.0,
+            5.0,
+            key="hf_case_psd_percent",
+            help=(
+                "This is a user-controlled engineering assumption for showing "
+                "the communication impact of Post-Storm Depression."
+            ),
+        )
+    with source_col:
+        st.metric("Transmitter", DEFAULT_UK_TRANSMITTER["name"])
+        st.caption("Illustrative UK-to-North-Atlantic route.")
+
+    case, coverage_summary = build_hf_coverage_case(
+        df,
+        frequency_mhz=frequency_mhz,
+        psd_percent=psd_percent,
+    )
+    if case.empty:
+        st.info(coverage_summary["message"])
+        return
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Quiet usable cells", f"{coverage_summary['quiet_available_pct']:.0f}%")
+    metric_cols[1].metric("Storm usable cells", f"{coverage_summary['storm_available_pct']:.0f}%")
+    metric_cols[2].metric("Degraded cells", f"{coverage_summary['degraded_count']:,}")
+    metric_cols[3].metric("PSD assumption", f"{coverage_summary['psd_percent']:.0f}%")
+
+    st.plotly_chart(
+        create_hf_coverage_map(
+            case,
+            DEFAULT_UK_TRANSMITTER,
+            title=(
+                "UK-to-North-Atlantic HF coverage demo at "
+                f"{coverage_summary['frequency_mhz']:.1f} MHz"
+            ),
+        ),
+        width="stretch",
+    )
+    st.dataframe(
+        case.head(80),
+        width="stretch",
+        hide_index=True,
+    )
+    with st.expander("How to interpret this HF case study"):
+        st.markdown(
+            """
+            MUF is the maximum usable frequency supported by the ionosphere for
+            a simplified path assumption. If the selected HF frequency is above
+            the local MUF, that frequency is treated as not usable in this
+            demonstration.
+
+            PSD lowers the assumed storm-time MUF. A cell marked degraded was
+            usable before the PSD assumption but becomes unusable after the
+            assumed depression.
+
+            Trace can support a more physical HF ray-tracing workflow in future
+            work. This dashboard section is a stable engineering demonstration
+            of the PSD communication effect, not a full propagation solver.
+            """
+        )
+
+
 def _render_research_messages(summary: pd.DataFrame, params: dict) -> None:
     st.subheader("Automated text-based SPWX research messages")
     st.caption(
@@ -1064,6 +1155,8 @@ def _render_main(params: dict) -> None:
     st.markdown("---")
     if not df.empty:
         _render_raw_value_maps(df)
+        st.markdown("---")
+        _render_hf_propagation_case_study(df)
         st.markdown("---")
     _render_global_indices(df)
     st.markdown("---")

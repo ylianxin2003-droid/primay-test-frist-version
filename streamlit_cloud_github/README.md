@@ -66,6 +66,21 @@ or fabricating zero or `OK`.
 Generated SWX text is deterministic and explicitly marked `STATUS: TEST` and
 `RESEARCH PROTOTYPE - NOT FOR OPERATIONAL USE`.
 
+## HF propagation case study
+
+The dashboard includes an engineering HF propagation case study inspired by
+the [Trace HF ray-tracing toolkit](https://pytrace.readthedocs.io/en/latest/).
+It does not run full Trace ray tracing in the current prototype. Instead, it
+uses the latest spatial MUF3000F2 grid and a user-selected HF frequency to show
+which North Atlantic map cells are usable before and after an assumed
+Post-Storm Depression.
+
+This section is intended to make the communication impact of PSD easier to
+explain in the MSc project presentation. A cell is marked as degraded when the
+selected frequency is below the current MUF but above the storm-depressed MUF.
+The route and UK transmitter are illustrative, so the output remains a
+research demonstration rather than an operational HF coverage product.
+
 ## Cached trial outputs
 
 Selected demo / validation periods can be loaded from cached processed outputs
@@ -149,6 +164,7 @@ No local scientific sample dataset is used as a silent fallback.
 - Kp/ap geomagnetic context
 - GNSS risk from Vertical TEC
 - HF COM risk from Post-Storm Depression
+- HF propagation case study for PSD-driven communication degradation
 - ICAO/PECASUS-style summary table
 - Categorical risk maps
 - TEST SPWX research messages

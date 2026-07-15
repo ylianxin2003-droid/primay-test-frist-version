@@ -168,6 +168,19 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertIn("Forecast source: SERENE", app_source)
         self.assertIn("dashboard-generated forecast", app_source)
 
+    def test_app_exposes_hf_propagation_case_study(self):
+        app_source = APP_PATH.read_text()
+        app_one_line = app_source.replace("\n", " ")
+        readme = README_PATH.read_text()
+
+        self.assertIn("HF propagation case study", app_source)
+        self.assertIn("Trace HF ray-tracing", app_source)
+        self.assertIn("MUF-threshold demonstration", app_source)
+        self.assertIn("not an operational", app_one_line)
+        self.assertIn("ray-tracing product", app_one_line)
+        self.assertIn("HF propagation case study", readme)
+        self.assertIn("not run full Trace ray tracing", readme)
+
     def test_readme_explains_prediction_fallback_sources(self):
         readme = README_PATH.read_text()
         readme_one_line = readme.replace("\n", " ")
