@@ -25,8 +25,12 @@ from app_utils import (
 from config import SERENE_API_TOKEN, reload_config, validate_config
 from data_loader import IcaoProductBundle, LoadStatus, load_icao_products
 from hf_coverage import (
+    DEFAULT_SWEEP_FREQUENCIES,
     DEFAULT_UK_TRANSMITTER,
-    build_hf_coverage_case,
+    TARGET_PRESETS,
+    TRANSMITTER_PRESETS,
+    build_frequency_sweep,
+    build_hf_engineering_case,
     create_hf_coverage_map,
 )
 from icao_message import generate_icao_message
@@ -676,15 +680,28 @@ def _render_raw_value_maps(df: pd.DataFrame) -> None:
 
 
 def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
-    st.subheader("HF propagation case study")
+    st.subheader("Engineering Impact: HF Communication Coverage")
     st.caption(
-        "Engineering demonstration inspired by Trace HF ray-tracing workflows. "
-        "This uses MUF3000F2 and an assumed PSD depression to show how HF coverage "
-        "may change. It is a MUF-threshold demonstration, not an operational "
-        "ray-tracing product."
+        "Phase 1 uses a simplified MUF-based coverage proxy to connect PSD/MUF "
+        "changes to possible HF communication impact. Phase 2 is an experimental "
+        "Trace HF ray-tracing integration path; no ray paths are fabricated here."
     )
 
-    control_col, psd_col, source_col = st.columns([1, 1, 1.2])
+    mode_col, source_col = st.columns([1.3, 1])
+    with mode_col:
+        st.info(
+            "Phase 1: MUF-based coverage proxy / MUF-threshold demonstration. "
+            "Phase 2: experimental Trace ray-tracing integration status is documented below."
+        )
+    with source_col:
+        status: LoadStatus = st.session_state.status
+        st.metric("Data source", _source_label(status))
+        st.caption(
+            "AIDA quiet vs storm comparison is used when `reference_value` exists; "
+            "otherwise the manual PSD slider is used as fallback."
+        )
+
+    control_col, psd_col, tx_col, target_col = st.columns(4)
     with control_col:
         frequency_mhz = st.slider(
             "HF frequency for coverage demo (MHz)",
@@ -696,7 +713,7 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
         )
     with psd_col:
         psd_percent = st.slider(
-            "Storm MUF depression used in demo (%)",
+            "Fallback storm MUF depression (%)",
             0.0,
             70.0,
             30.0,
@@ -707,41 +724,157 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
                 "the communication impact of Post-Storm Depression."
             ),
         )
-    with source_col:
-        st.metric("Transmitter", DEFAULT_UK_TRANSMITTER["name"])
-        st.caption("Illustrative UK-to-North-Atlantic route.")
+    with tx_col:
+        tx_preset = st.selectbox(
+            "Transmitter preset",
+            ["UK transmitter", "Custom transmitter"],
+            key="hf_transmitter_preset",
+        )
+    with target_col:
+        target_preset = st.selectbox(
+            "Target preset",
+            ["North Atlantic corridor", "New York JFK", "Custom target"],
+            key="hf_target_preset",
+        )
 
-    case, coverage_summary = build_hf_coverage_case(
+    transmitter = dict(TRANSMITTER_PRESETS["UK transmitter"])
+    if tx_preset == "Custom transmitter":
+        tx_custom_col1, tx_custom_col2 = st.columns(2)
+        with tx_custom_col1:
+            transmitter["lat"] = st.number_input(
+                "Custom transmitter latitude", -90.0, 90.0, 52.0, 0.1,
+                key="hf_custom_tx_lat",
+            )
+        with tx_custom_col2:
+            transmitter["lon"] = st.number_input(
+                "Custom transmitter longitude", -180.0, 180.0, -1.5, 0.1,
+                key="hf_custom_tx_lon",
+            )
+        transmitter["name"] = "Custom transmitter"
+
+    target = dict(TARGET_PRESETS["North Atlantic corridor"])
+    if target_preset == "New York JFK":
+        target = dict(TARGET_PRESETS["New York JFK"])
+    elif target_preset == "Custom target":
+        target_custom_col1, target_custom_col2 = st.columns(2)
+        with target_custom_col1:
+            target["lat"] = st.number_input(
+                "Custom target latitude", -90.0, 90.0, 40.6, 0.1,
+                key="hf_custom_target_lat",
+            )
+        with target_custom_col2:
+            target["lon"] = st.number_input(
+                "Custom target longitude", -180.0, 180.0, -73.8, 0.1,
+                key="hf_custom_target_lon",
+            )
+        target["name"] = "Custom target"
+
+    time_cols = st.columns(3)
+    status = st.session_state.status
+    with time_cols[0]:
+        st.text_input(
+            "Quiet/background analysis time",
+            value="AIDA 30-day same-UTC reference" if "reference_value" in df.columns else "Manual PSD fallback",
+            disabled=True,
+            key="hf_quiet_time_display",
+        )
+    with time_cols[1]:
+        st.text_input(
+            "Storm analysis time",
+            value=str(status.metadata.get("analysis_time", "loaded analysis time")),
+            disabled=True,
+            key="hf_storm_time_display",
+        )
+    with time_cols[2]:
+        st.text_input(
+            "Coverage data mode",
+            value=_source_label(status),
+            disabled=True,
+            key="hf_data_mode_display",
+        )
+
+    engineering_case = build_hf_engineering_case(
         df,
         frequency_mhz=frequency_mhz,
-        psd_percent=psd_percent,
+        transmitter=transmitter,
+        target=target,
+        route_samples=33,
+        assumed_psd_percent=psd_percent,
     )
-    if case.empty:
-        st.info(coverage_summary["message"])
+    if engineering_case.grid.empty:
+        st.info("No spatial MUF3000F2 grid is available for the HF communication case study.")
         return
 
+    summary = engineering_case.summary
     metric_cols = st.columns(4)
-    metric_cols[0].metric("Quiet usable cells", f"{coverage_summary['quiet_available_pct']:.0f}%")
-    metric_cols[1].metric("Storm usable cells", f"{coverage_summary['storm_available_pct']:.0f}%")
-    metric_cols[2].metric("Degraded cells", f"{coverage_summary['degraded_count']:,}")
-    metric_cols[3].metric("PSD assumption", f"{coverage_summary['psd_percent']:.0f}%")
+    metric_cols[0].metric("Selected frequency", f"{summary['frequency_mhz']:.1f} MHz")
+    metric_cols[1].metric("Quiet usable grid", f"{summary['quiet_usable_grid_pct']:.0f}%")
+    metric_cols[2].metric("Storm usable grid", f"{summary['storm_usable_grid_pct']:.0f}%")
+    metric_cols[3].metric("Regional coverage loss", f"{summary['regional_coverage_loss_pct_points']:.0f} pp")
+    route_cols = st.columns(4)
+    route_cols[0].metric("Quiet route availability", f"{summary['quiet_route_available_pct']:.0f}%")
+    route_cols[1].metric("Storm route availability", f"{summary['storm_route_available_pct']:.0f}%")
+    route_cols[2].metric("Longest degraded segment", f"{summary['longest_degraded_segment_km']:.0f} km")
+    route_cols[3].metric("Comparison mode", summary["comparison_mode"])
 
-    st.plotly_chart(
-        create_hf_coverage_map(
-            case,
-            DEFAULT_UK_TRANSMITTER,
-            title=(
-                "UK-to-North-Atlantic HF coverage demo at "
-                f"{coverage_summary['frequency_mhz']:.1f} MHz"
+    st.info(summary["interpretation"])
+
+    quiet_tab, storm_tab, change_tab, route_tab, sweep_tab = st.tabs([
+        "Quiet map",
+        "Storm map",
+        "Coverage change",
+        "Route samples",
+        "Frequency sweep",
+    ])
+    with quiet_tab:
+        st.plotly_chart(
+            create_hf_coverage_map(
+                engineering_case.grid,
+                transmitter,
+                target,
+                route=engineering_case.route.to_dict("records"),
+                title=f"Quiet/background potential HF coverage at {summary['frequency_mhz']:.1f} MHz",
+                map_mode="quiet",
             ),
-        ),
-        width="stretch",
-    )
-    st.dataframe(
-        case.head(80),
-        width="stretch",
-        hide_index=True,
-    )
+            width="stretch",
+        )
+    with storm_tab:
+        st.plotly_chart(
+            create_hf_coverage_map(
+                engineering_case.grid,
+                transmitter,
+                target,
+                route=engineering_case.route.to_dict("records"),
+                title=f"Storm-time potential HF coverage at {summary['frequency_mhz']:.1f} MHz",
+                map_mode="storm",
+            ),
+            width="stretch",
+        )
+    with change_tab:
+        st.plotly_chart(
+            create_hf_coverage_map(
+                engineering_case.grid,
+                transmitter,
+                target,
+                route=engineering_case.route.to_dict("records"),
+                title=f"Coverage change at {summary['frequency_mhz']:.1f} MHz",
+                map_mode="change",
+            ),
+            width="stretch",
+        )
+    with route_tab:
+        st.dataframe(engineering_case.route, width="stretch", hide_index=True)
+    with sweep_tab:
+        sweep = build_frequency_sweep(engineering_case, DEFAULT_SWEEP_FREQUENCIES)
+        st.dataframe(sweep, width="stretch", hide_index=True)
+        best = sweep[sweep["potentially_more_robust_frequency"]]
+        if not best.empty:
+            row = best.iloc[0]
+            st.success(
+                f"{row['frequency_mhz']:.1f} MHz: Potentially more robust frequency "
+                "in this research case. This is not an operational recommendation."
+            )
+
     with st.expander("How to interpret this HF case study"):
         st.markdown(
             """
@@ -750,13 +883,32 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
             the local MUF, that frequency is treated as not usable in this
             demonstration.
 
-            PSD lowers the assumed storm-time MUF. A cell marked degraded was
-            usable before the PSD assumption but becomes unusable after the
-            assumed depression.
+            When AIDA `reference_value` is available, the quiet/background side
+            uses the real AIDA same-UTC baseline and the storm side uses the
+            loaded analysis MUF3000F2. The PSD percentage is calculated as:
+
+            `PSD % = max(0, (quiet_MUF - storm_MUF) / quiet_MUF * 100)`
+
+            If that reference is missing, the manual PSD slider is used only as
+            a fallback demonstration mode and is labelled as an assumption.
 
             Trace can support a more physical HF ray-tracing workflow in future
             work. This dashboard section is a stable engineering demonstration
             of the PSD communication effect, not a full propagation solver.
+
+            Research prototype only. Not suitable for operational aviation
+            decision-making.
+            """
+        )
+    with st.expander("Trace integration status"):
+        st.markdown(
+            """
+            Phase 2 is reserved for experimental Trace ray-tracing integration.
+            The current dashboard does not generate Trace ray paths. The technical
+            note in `docs/trace_integration_note.md` records the required inputs,
+            AIDA mapping, and remaining blockers. The optional
+            `trace_poc_probe.py` script only checks local Trace readiness; it is
+            not a propagation result.
             """
         )
 

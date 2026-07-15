@@ -173,11 +173,15 @@ class DashboardSettingsTest(unittest.TestCase):
         app_one_line = app_source.replace("\n", " ")
         readme = README_PATH.read_text()
 
-        self.assertIn("HF propagation case study", app_source)
+        self.assertIn("Engineering Impact: HF Communication Coverage", app_source)
+        self.assertIn("Phase 1: MUF-based coverage proxy", app_source)
+        self.assertIn("Phase 2: experimental Trace", app_source)
         self.assertIn("Trace HF ray-tracing", app_source)
         self.assertIn("MUF-threshold demonstration", app_source)
+        self.assertIn("Quiet route availability", app_source)
+        self.assertIn("Frequency sweep", app_source)
         self.assertIn("not an operational", app_one_line)
-        self.assertIn("ray-tracing product", app_one_line)
+        self.assertIn("not a full propagation solver", app_one_line)
         self.assertIn("HF propagation case study", readme)
         self.assertIn("not run full Trace ray tracing", readme)
 

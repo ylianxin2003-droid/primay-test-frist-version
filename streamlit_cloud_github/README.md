@@ -71,15 +71,32 @@ Generated SWX text is deterministic and explicitly marked `STATUS: TEST` and
 The dashboard includes an engineering HF propagation case study inspired by
 the [Trace HF ray-tracing toolkit](https://pytrace.readthedocs.io/en/latest/).
 It does not run full Trace ray tracing in the current prototype. Instead, it
-uses the latest spatial MUF3000F2 grid and a user-selected HF frequency to show
-which North Atlantic map cells are usable before and after an assumed
-Post-Storm Depression.
+uses MUF3000F2 to build a route-level HF communication proxy. Where AIDA
+30-day same-UTC `reference_value` data is available, the section compares a
+quiet/background MUF state with the storm/current MUF state. If that reference
+is missing, it falls back to a clearly labelled assumed Post-Storm Depression
+demonstration.
 
 This section is intended to make the communication impact of PSD easier to
-explain in the MSc project presentation. A cell is marked as degraded when the
-selected frequency is below the current MUF but above the storm-depressed MUF.
-The route and UK transmitter are illustrative, so the output remains a
-research demonstration rather than an operational HF coverage product.
+explain in the MSc project presentation. The user can select a UK transmitter,
+a North Atlantic or custom target, a route frequency, and a local grid
+resolution. The app samples MUF along a great-circle route, reports quiet and
+storm route availability, highlights the longest degraded route segment, and
+runs a small frequency sweep to identify a potentially more robust frequency
+for this research case.
+
+Coverage categories are limited to the supported MUF proxy:
+
+- `Usable in both`
+- `Degraded during storm`
+- `Unusable in both`
+- `Improved during storm`
+
+The route and transmitter are illustrative, so the output remains a research
+demonstration rather than an operational HF coverage product. The Trace
+integration status is documented in `../docs/trace_integration_note.md`; the
+optional `trace_poc_probe.py` script only checks local Trace readiness and does
+not generate ray paths.
 
 ## Cached trial outputs
 
