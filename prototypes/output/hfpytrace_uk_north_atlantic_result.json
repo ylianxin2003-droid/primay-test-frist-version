@@ -1,0 +1,129 @@
+{
+  "scientific_guardrail": "This is a standalone hfpytrace proof of concept. IRI backend results are real ray-tracing outputs, but they are not AIDA PSD ray tracing.",
+  "backend": "iri",
+  "time_utc": "2025-01-01T17:55:00+00:00",
+  "frequency_mhz": 17.5,
+  "transmitter": {
+    "name": "UK transmitter",
+    "lat": 52.0,
+    "lon": -2.0
+  },
+  "target": {
+    "name": "North Atlantic point",
+    "lat": 51.0,
+    "lon": -32.0
+  },
+  "target_route_range_km": 2064.806241589054,
+  "propagation_success": true,
+  "best_ray": {
+    "elevation_deg": 5.0,
+    "status": "ground",
+    "x_end_km": 2036.0825787776146,
+    "z_end_km": 0.0010000000002037268,
+    "x_apex_km": 1219.5247754669144,
+    "z_apex_km": 166.26549518181946,
+    "group_delay_sec": 0.007085454120173858,
+    "target_miss_km": 28.723662811439453
+  },
+  "landing_point": {
+    "lat": 51.06543104985025,
+    "lon": -31.60261322213854,
+    "route_distance_km": 2036.0825787776146
+  },
+  "rays": [
+    {
+      "elevation_deg": 5.0,
+      "status": "ground",
+      "x_end_km": 2036.0825787776146,
+      "z_end_km": 0.0010000000002037268,
+      "x_apex_km": 1219.5247754669144,
+      "z_apex_km": 166.26549518181946,
+      "group_delay_sec": 0.007085454120173858,
+      "target_miss_km": 28.723662811439453
+    },
+    {
+      "elevation_deg": 10.0,
+      "status": "ground",
+      "x_end_km": 1656.9376581751592,
+      "z_end_km": 0.0010000000002037268,
+      "x_apex_km": 924.234902358169,
+      "z_apex_km": 190.30513341171354,
+      "group_delay_sec": 0.005863226976063658,
+      "target_miss_km": 407.86858341389484
+    },
+    {
+      "elevation_deg": 15.0,
+      "status": "ground",
+      "x_end_km": 1491.5342947478484,
+      "z_end_km": 0.0010000000002037268,
+      "x_apex_km": 804.9467737905219,
+      "z_apex_km": 211.4806710091534,
+      "group_delay_sec": 0.005429463232546755,
+      "target_miss_km": 573.2719468412056
+    },
+    {
+      "elevation_deg": 20.0,
+      "status": "domain",
+      "x_end_km": 1273.2138094788427,
+      "z_end_km": 495.0,
+      "x_apex_km": 1273.2138094788427,
+      "z_apex_km": 495.0,
+      "group_delay_sec": 0.004913378440596723,
+      "target_miss_km": null
+    },
+    {
+      "elevation_deg": 25.0,
+      "status": "domain",
+      "x_end_km": 974.950920942804,
+      "z_end_km": 495.0,
+      "x_apex_km": 974.950920942804,
+      "z_apex_km": 495.0,
+      "group_delay_sec": 0.0038913118860827785,
+      "target_miss_km": null
+    },
+    {
+      "elevation_deg": 30.0,
+      "status": "domain",
+      "x_end_km": 791.5262435714626,
+      "z_end_km": 495.0,
+      "x_apex_km": 791.5262435714626,
+      "z_apex_km": 495.0,
+      "group_delay_sec": 0.0033026147232539287,
+      "target_miss_km": null
+    },
+    {
+      "elevation_deg": 40.0,
+      "status": "domain",
+      "x_end_km": 550.5730627192057,
+      "z_end_km": 495.0,
+      "x_apex_km": 550.5730627192057,
+      "z_apex_km": 495.0,
+      "group_delay_sec": 0.0025953054237740844,
+      "target_miss_km": null
+    },
+    {
+      "elevation_deg": 50.0,
+      "status": "domain",
+      "x_end_km": 390.20322296692274,
+      "z_end_km": 495.0,
+      "x_apex_km": 390.20322296692274,
+      "z_apex_km": 495.0,
+      "group_delay_sec": 0.0021921373299026905,
+      "target_miss_km": null
+    },
+    {
+      "elevation_deg": 60.0,
+      "status": "domain",
+      "x_end_km": 269.34766253069694,
+      "z_end_km": 495.0,
+      "x_apex_km": 269.34766253069694,
+      "z_apex_km": 495.0,
+      "group_delay_sec": 0.0019465948890762684,
+      "target_miss_km": null
+    }
+  ],
+  "outputs": {
+    "json": "prototypes/output/hfpytrace_uk_north_atlantic_result.json",
+    "plot": "prototypes/output/hfpytrace_uk_north_atlantic_ray_path.png"
+  }
+}
