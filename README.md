@@ -79,6 +79,8 @@ Key code modules:
   calculations, route metrics, and frequency comparison logic.
 - `streamlit_cloud_github/hf_coverage_ui.py` renders the HF engineering case
   study in Streamlit while keeping the calculation logic separate.
+- `streamlit_cloud_github/validation_ui.py` renders validation assumptions,
+  historical replay checks, sensitivity checks, and current limitations.
 - `streamlit_cloud_github/icao_visualisation.py` and
   `streamlit_cloud_github/visualisation.py` create the map and chart views.
 
@@ -102,10 +104,14 @@ Validation is organised around the engineering decision-support workflow:
 - Route assessment verification for the UK transmitter to North Atlantic to New
   York JFK case study.
 
-The Trace feasibility work is documented in `docs/Trace Integration Report.md`.
+The Trace feasibility work is documented in `docs/Trace_Integration_Report.md`.
 The dashboard does not fake ray tracing; current HF coverage remains a
 MUF-threshold engineering proxy until validated electron-density profiles are
 available for Trace.
+
+Dissertation and presentation evidence is summarised in
+`docs/engineering_review.md`, including the architecture diagram, workflow
+diagram, validation summary, limitations, future work, and suggested wording.
 
 ## Limitations
 

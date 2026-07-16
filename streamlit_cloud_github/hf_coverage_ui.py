@@ -260,7 +260,7 @@ def render_hf_propagation_case_study(df: pd.DataFrame) -> None:
             """
             Phase 2 is reserved for experimental Trace ray-tracing integration.
             The current dashboard does not generate Trace ray paths. The technical
-            note in `docs/Trace Integration Report.md` records the required inputs,
+            note in `docs/Trace_Integration_Report.md` records the required inputs,
             AIDA mapping, and remaining blockers. The optional
             `prototypes/hfpytrace_uk_north_atlantic_poc.py` script records a
             standalone feasibility probe; it is not a dashboard propagation

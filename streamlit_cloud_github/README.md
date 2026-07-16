@@ -122,7 +122,7 @@ Coverage categories are limited to the supported MUF proxy:
 
 The route and transmitter are illustrative, so the output remains a research
 demonstration rather than an operational HF coverage product. The Trace
-integration status is documented in `../docs/trace_integration_note.md`; the
+integration status is documented in `../docs/Trace_Integration_Report.md`; the
 optional `trace_poc_probe.py` script only checks local Trace readiness and does
 not generate ray paths.
 

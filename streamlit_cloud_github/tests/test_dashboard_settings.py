@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = PROJECT_ROOT / "app.py"
 HF_UI_PATH = PROJECT_ROOT / "hf_coverage_ui.py"
+VALIDATION_UI_PATH = PROJECT_ROOT / "validation_ui.py"
 CLIENT_PATH = PROJECT_ROOT / "serene_client.py"
 REQUIREMENTS_PATH = PROJECT_ROOT / "requirements.txt"
 ENV_EXAMPLE_PATH = PROJECT_ROOT / ".env.example"
@@ -192,7 +193,7 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertIn("not recommend operational frequencies", hf_ui_source)
         self.assertIn("not an operational", hf_ui_source.replace("\n", " "))
         self.assertIn("not a full propagation solver", hf_ui_source.replace("\n", " "))
-        self.assertIn("docs/Trace Integration Report.md", hf_ui_source)
+        self.assertIn("docs/Trace_Integration_Report.md", hf_ui_source)
         self.assertIn("prototypes/hfpytrace_uk_north_atlantic_poc.py", hf_ui_source)
         self.assertIn("HF propagation case study", readme)
         self.assertIn("not run full Trace ray tracing", readme)
@@ -201,14 +202,17 @@ class DashboardSettingsTest(unittest.TestCase):
 
     def test_app_exposes_validation_section_for_decision_support(self):
         app_source = APP_PATH.read_text()
+        validation_source = VALIDATION_UI_PATH.read_text()
 
-        self.assertIn("Validation and engineering assumptions", app_source)
-        self.assertIn("Historical event replay", app_source)
-        self.assertIn("Quiet vs storm comparison", app_source)
-        self.assertIn("PSD sensitivity", app_source)
-        self.assertIn("Frequency sensitivity", app_source)
-        self.assertIn("Route assessment verification", app_source)
-        self.assertIn("MUF-threshold engineering proxy", app_source)
+        self.assertIn("render_validation_section", app_source)
+        self.assertNotIn("def _render_validation_section", app_source)
+        self.assertIn("Validation and engineering assumptions", validation_source)
+        self.assertIn("Historical event replay", validation_source)
+        self.assertIn("Quiet vs storm comparison", validation_source)
+        self.assertIn("PSD sensitivity", validation_source)
+        self.assertIn("Frequency sensitivity", validation_source)
+        self.assertIn("Route assessment verification", validation_source)
+        self.assertIn("MUF-threshold engineering proxy", validation_source)
 
     def test_readme_explains_prediction_fallback_sources(self):
         readme = README_PATH.read_text()
