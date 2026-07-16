@@ -65,6 +65,23 @@ Risk Assessment
   -> Decision Support
 ```
 
+Key code modules:
+
+- `streamlit_cloud_github/app.py` is the Streamlit application shell and page
+  orchestration layer.
+- `streamlit_cloud_github/data_loader.py` loads Live SERENE API data, cached
+  trial outputs, and global Kp/ap context.
+- `streamlit_cloud_github/icao_risk.py` converts supported indicators into
+  prototype GNSS, HF COM, and overall risk categories.
+- `streamlit_cloud_github/icao_message.py` builds TEST research messages from
+  the risk outputs.
+- `streamlit_cloud_github/hf_coverage.py` contains the HF communication impact
+  calculations, route metrics, and frequency comparison logic.
+- `streamlit_cloud_github/hf_coverage_ui.py` renders the HF engineering case
+  study in Streamlit while keeping the calculation logic separate.
+- `streamlit_cloud_github/icao_visualisation.py` and
+  `streamlit_cloud_github/visualisation.py` create the map and chart views.
+
 The HF engineering module keeps the existing MUF-threshold proxy and labels it
 as **Engineering Impact: HF Communication Coverage**. It reports quiet coverage,
 storm coverage, coverage loss, quiet/storm route availability, degraded route

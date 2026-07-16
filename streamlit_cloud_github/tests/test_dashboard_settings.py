@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = PROJECT_ROOT / "app.py"
+HF_UI_PATH = PROJECT_ROOT / "hf_coverage_ui.py"
 CLIENT_PATH = PROJECT_ROOT / "serene_client.py"
 REQUIREMENTS_PATH = PROJECT_ROOT / "requirements.txt"
 ENV_EXAMPLE_PATH = PROJECT_ROOT / ".env.example"
@@ -170,25 +171,29 @@ class DashboardSettingsTest(unittest.TestCase):
 
     def test_app_exposes_hf_propagation_case_study(self):
         app_source = APP_PATH.read_text()
-        app_one_line = app_source.replace("\n", " ")
+        hf_ui_source = HF_UI_PATH.read_text()
         readme = README_PATH.read_text()
 
-        self.assertIn("Engineering Impact: HF Communication Coverage", app_source)
-        self.assertIn("Phase 1: MUF-based coverage proxy", app_source)
-        self.assertIn("Phase 2: experimental Trace", app_source)
-        self.assertIn("Trace HF ray-tracing", app_source)
-        self.assertIn("MUF-threshold demonstration", app_source)
-        self.assertIn("Quiet coverage", app_source)
-        self.assertIn("Storm coverage", app_source)
-        self.assertIn("Coverage loss", app_source)
-        self.assertIn("Quiet route availability", app_source)
-        self.assertIn("Route coverage reduction", app_source)
-        self.assertIn("Degraded route points", app_source)
-        self.assertIn("Frequency sweep", app_source)
-        self.assertIn("Research comparison only", app_source)
-        self.assertIn("not recommend operational frequencies", app_source)
-        self.assertIn("not an operational", app_one_line)
-        self.assertIn("not a full propagation solver", app_one_line)
+        self.assertIn("render_hf_propagation_case_study", app_source)
+        self.assertNotIn("def _render_hf_propagation_case_study", app_source)
+        self.assertIn("Engineering Impact: HF Communication Coverage", hf_ui_source)
+        self.assertIn("Phase 1: MUF-based coverage proxy", hf_ui_source)
+        self.assertIn("Phase 2: experimental Trace", hf_ui_source)
+        self.assertIn("Trace HF ray-tracing", hf_ui_source)
+        self.assertIn("MUF-threshold demonstration", hf_ui_source)
+        self.assertIn("Quiet coverage", hf_ui_source)
+        self.assertIn("Storm coverage", hf_ui_source)
+        self.assertIn("Coverage loss", hf_ui_source)
+        self.assertIn("Quiet route availability", hf_ui_source)
+        self.assertIn("Route coverage reduction", hf_ui_source)
+        self.assertIn("Degraded route points", hf_ui_source)
+        self.assertIn("Frequency sweep", hf_ui_source)
+        self.assertIn("Research comparison only", hf_ui_source)
+        self.assertIn("not recommend operational frequencies", hf_ui_source)
+        self.assertIn("not an operational", hf_ui_source.replace("\n", " "))
+        self.assertIn("not a full propagation solver", hf_ui_source.replace("\n", " "))
+        self.assertIn("docs/Trace Integration Report.md", hf_ui_source)
+        self.assertIn("prototypes/hfpytrace_uk_north_atlantic_poc.py", hf_ui_source)
         self.assertIn("HF propagation case study", readme)
         self.assertIn("not run full Trace ray tracing", readme)
         self.assertIn("Engineering decision-support workflow", readme)
