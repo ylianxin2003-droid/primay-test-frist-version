@@ -113,6 +113,13 @@ storm route availability, highlights the longest degraded route segment, and
 runs a small frequency sweep to identify a potentially more robust frequency
 for this research case.
 
+The calculation is exposed through `HFPropagationEngine`. Current Mode A uses
+the MUF-threshold engineering approximation. Future Mode B is reserved for a
+validated ray-tracing backend, but it is intentionally not implemented until an
+AIDA-to-ray-tracing electron-density conversion has been verified. The
+frequency recommendation is therefore model-based decision support inside the
+current approximation, not operational frequency advice.
+
 Coverage categories are limited to the supported MUF proxy:
 
 - `Usable in both`

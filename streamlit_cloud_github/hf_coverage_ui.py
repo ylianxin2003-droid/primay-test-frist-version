@@ -161,16 +161,22 @@ def render_hf_propagation_case_study(df: pd.DataFrame) -> None:
     metric_cols[1].metric("Quiet coverage", f"{summary['quiet_usable_grid_pct']:.0f}%")
     metric_cols[2].metric("Storm coverage", f"{summary['storm_usable_grid_pct']:.0f}%")
     metric_cols[3].metric("Coverage loss", f"{summary['regional_coverage_loss_pct_points']:.0f} pp")
-    route_cols = st.columns(5)
+    route_cols = st.columns(6)
     route_cols[0].metric("Quiet route availability", f"{summary['quiet_route_available_pct']:.0f}%")
     route_cols[1].metric("Storm route availability", f"{summary['storm_route_available_pct']:.0f}%")
     route_cols[2].metric("Route coverage reduction", f"{summary['route_coverage_loss_pct_points']:.0f} pp")
-    route_cols[3].metric("Degraded route points", int(summary["degraded_route_points"]))
-    route_cols[4].metric("Longest degraded segment", f"{summary['longest_degraded_segment_km']:.0f} km")
-    st.caption(f"Comparison mode: {summary['comparison_mode']}")
+    route_cols[3].metric("Degraded route", f"{summary['degraded_route_pct']:.0f}%")
+    route_cols[4].metric("Unavailable route", f"{summary['storm_route_unavailable_pct']:.0f}%")
+    route_cols[5].metric("Longest degraded segment", f"{summary['longest_degraded_segment_km']:.0f} km")
+    st.caption(
+        f"Propagation model: {summary['propagation_model']} | "
+        f"Comparison mode: {summary['comparison_mode']}"
+    )
 
     st.markdown("**Engineering interpretation**")
     st.info(summary["interpretation"])
+    st.markdown("**Route decision support**")
+    st.warning(summary["route_recommendation"])
 
     quiet_tab, storm_tab, change_tab, route_tab, sweep_tab = st.tabs([
         "Quiet map",
@@ -219,15 +225,21 @@ def render_hf_propagation_case_study(df: pd.DataFrame) -> None:
         st.dataframe(engineering_case.route, width="stretch", hide_index=True)
     with sweep_tab:
         sweep = build_frequency_sweep(engineering_case, DEFAULT_SWEEP_FREQUENCIES)
-        st.caption("Research comparison only. This table does not recommend operational frequencies.")
+        st.caption(
+            "Research comparison only. The highlighted frequency is a model-based "
+            "storm-case recommendation inside the MUF-threshold approximation, "
+            "not operational frequency advice."
+        )
         st.dataframe(sweep, width="stretch", hide_index=True)
-        best = sweep[sweep["highest_storm_route_availability_in_research_case"]]
+        best = sweep[sweep["model_recommended_for_storm_case"]]
         if not best.empty:
             row = best.iloc[0]
             st.info(
-                f"{row['frequency_mhz']:.1f} MHz has the highest storm route "
-                "availability in this research comparison. This is not an "
-                "operational frequency recommendation."
+                f"Within this MUF-threshold approximation, {row['frequency_mhz']:.1f} MHz "
+                "is the model-preferred storm frequency for this route because it "
+                "has the strongest storm-case route availability in the comparison. "
+                "This is decision support for the research prototype, not operational "
+                "frequency advice."
             )
 
     with st.expander("How to interpret this HF case study"):

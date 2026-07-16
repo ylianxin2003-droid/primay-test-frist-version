@@ -9,6 +9,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 class HfCoverageTest(unittest.TestCase):
+    def test_hf_propagation_engine_exposes_muf_mode_and_rejects_fake_ray_tracing(self):
+        from hf_coverage import HFPropagationEngine
+
+        data = pd.DataFrame([
+            {
+                "time": "2025-01-01T12:00:00Z",
+                "lat": 52.0,
+                "lon": -10.0,
+                "variable": "MUF3000F2",
+                "value": 12.0,
+                "reference_value": 16.0,
+                "product_kind": "analysis",
+            },
+        ])
+
+        case = HFPropagationEngine(mode="muf_threshold").analyse(data, frequency_mhz=10.0)
+
+        self.assertEqual(case.summary["backend_mode"], "Mode A")
+        self.assertEqual(case.summary["propagation_model"], "MUF-threshold engineering approximation")
+        with self.assertRaises(NotImplementedError):
+            HFPropagationEngine(mode="ray_tracing").analyse(data, frequency_mhz=10.0)
+
     def test_aida_reference_value_is_used_before_manual_psd_assumption(self):
         from hf_coverage import build_hf_engineering_case
 
@@ -79,8 +101,13 @@ class HfCoverageTest(unittest.TestCase):
         self.assertEqual(case.summary["quiet_route_available_pct"], 100.0)
         self.assertEqual(case.summary["storm_route_available_pct"], 50.0)
         self.assertEqual(case.summary["degraded_route_points"], 2)
+        self.assertEqual(case.summary["degraded_route_pct"], 50.0)
+        self.assertEqual(case.summary["storm_route_unavailable_pct"], 50.0)
         self.assertGreater(case.summary["longest_degraded_segment_km"], 600.0)
         self.assertEqual(case.summary["route_status"], "partially degraded")
+        self.assertIn("Coverage reduced", case.summary["route_recommendation"])
+        self.assertIn("PSD reduces", case.summary["interpretation"])
+        self.assertIn("storm-time MUF", case.summary["interpretation"])
         self.assertIn("risk_category", case.route.columns)
         self.assertIn("MODERATE", set(case.route["risk_category"]))
 
@@ -119,7 +146,11 @@ class HfCoverageTest(unittest.TestCase):
 
         best = sweep[sweep["highest_storm_route_availability_in_research_case"]].iloc[0]
         self.assertEqual(float(best["frequency_mhz"]), 5.0)
-        self.assertEqual(best["label"], "Highest storm route availability in this research comparison")
+        self.assertTrue(bool(best["model_recommended_for_storm_case"]))
+        self.assertEqual(best["label"], "Model-preferred storm frequency in this MUF-threshold research case")
+        self.assertIn("decision_support", sweep.columns)
+        self.assertIn("route_degraded_pct", sweep.columns)
+        self.assertIn("route_unavailable_pct", sweep.columns)
 
     def test_default_route_labels_north_atlantic_waypoint(self):
         from hf_coverage import TARGET_PRESETS, TRANSMITTER_PRESETS, great_circle_route

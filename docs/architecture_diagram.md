@@ -9,7 +9,8 @@ flowchart LR
     B --> C["Indicator processing"]
     C --> D["Risk engine"]
     D --> E["Visualisation"]
-    E --> F["Engineering outputs"]
+    E --> F["HFPropagationEngine"]
+    F --> G["Engineering outputs"]
 
     B --> B1["Live SERENE API mode"]
     B --> B2["Cached trial output mode"]
@@ -29,10 +30,13 @@ flowchart LR
     E --> E3["ICAO-style summary table"]
     E --> E4["TEST research messages"]
 
-    F --> F1["Engineering Impact: HF Communication Coverage"]
-    F --> F2["UK to North Atlantic to New York JFK route assessment"]
-    F --> F3["Frequency sensitivity comparison"]
-    F --> F4["Engineering interpretation and decision-support context"]
+    F --> F0["Mode A: MUF-threshold engineering approximation"]
+    F --> F5["Mode B: future validated ray-tracing backend"]
+
+    G --> G1["Engineering Impact: HF Communication Coverage"]
+    G --> G2["UK to North Atlantic to New York JFK route assessment"]
+    G --> G3["Frequency sensitivity comparison"]
+    G --> G4["Engineering interpretation and decision-support context"]
 ```
 
 Decision-support flow:
@@ -46,6 +50,8 @@ Risk Assessment
 
 Scientific guardrail:
 
-The current HF module is a MUF-threshold engineering proxy. It is not Trace ray
-tracing and it is not operational aviation guidance. Trace integration is
-documented separately in `Trace_Integration_Report.md`.
+The current HF module uses `HFPropagationEngine` Mode A, a MUF-threshold
+engineering approximation. Mode B is reserved for future validated ray tracing.
+The current dashboard does not generate Trace ray paths and it is not
+operational aviation guidance. Trace integration is documented separately in
+`Trace_Integration_Report.md`.

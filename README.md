@@ -76,7 +76,9 @@ Key code modules:
 - `streamlit_cloud_github/icao_message.py` builds TEST research messages from
   the risk outputs.
 - `streamlit_cloud_github/hf_coverage.py` contains the HF communication impact
-  calculations, route metrics, and frequency comparison logic.
+  calculations, `HFPropagationEngine`, route metrics, and frequency comparison
+  logic. Mode A is the current MUF-threshold engineering approximation; Mode B
+  is reserved for a future validated ray-tracing backend.
 - `streamlit_cloud_github/hf_coverage_ui.py` renders the HF engineering case
   study in Streamlit while keeping the calculation logic separate.
 - `streamlit_cloud_github/validation_ui.py` renders validation assumptions,
@@ -87,9 +89,10 @@ Key code modules:
 The HF engineering module keeps the existing MUF-threshold proxy and labels it
 as **Engineering Impact: HF Communication Coverage**. It reports quiet coverage,
 storm coverage, coverage loss, quiet/storm route availability, degraded route
-points, longest degraded route segment, and a concise interpretation. Frequency
-comparison is labelled as research comparison only and must not be used as
-operational frequency advice.
+percentage, unavailable route percentage, longest degraded route segment, and a
+concise interpretation. Frequency comparison can identify the model-preferred
+storm frequency inside the MUF-threshold approximation, but it is labelled as
+research decision support and must not be used as operational frequency advice.
 
 ## Validation Approach
 

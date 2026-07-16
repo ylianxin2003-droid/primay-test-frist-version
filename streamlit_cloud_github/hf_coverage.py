@@ -1,8 +1,8 @@
-"""HF coverage demonstration derived from SERENE AIDA MUF data.
+"""HF communication engineering engine derived from SERENE AIDA MUF data.
 
-The functions in this module are intentionally lightweight. They demonstrate
-how Post-Storm Depression can reduce usable HF coverage for a selected
-frequency, but they do not perform full ray tracing.
+The current implementation uses a MUF-threshold engineering approximation.
+It demonstrates how Post-Storm Depression can reduce usable HF coverage for a
+selected frequency, but it does not perform full ray tracing.
 """
 
 from __future__ import annotations
@@ -69,6 +69,44 @@ class HfEngineeringCase:
     summary: dict
     transmitter: dict
     target: dict
+
+
+@dataclass(frozen=True)
+class HFPropagationEngine:
+    """Common interface for current and future HF propagation backends.
+
+    Mode A is the current MUF-threshold engineering approximation. Mode B is
+    reserved for a future validated ray-tracing backend such as hfpytrace. Mode
+    B intentionally raises instead of fabricating ray paths.
+    """
+
+    mode: str = "muf_threshold"
+
+    def analyse(
+        self,
+        data: pd.DataFrame,
+        frequency_mhz: float = 10.0,
+        transmitter: dict | None = None,
+        target: dict | None = None,
+        route_samples: int = 33,
+        assumed_psd_percent: float = 30.0,
+    ) -> HfEngineeringCase:
+        """Analyse HF communication coverage using the selected backend mode."""
+        if self.mode == "muf_threshold":
+            return _build_muf_threshold_engineering_case(
+                data,
+                frequency_mhz=frequency_mhz,
+                transmitter=transmitter,
+                target=target,
+                route_samples=route_samples,
+                assumed_psd_percent=assumed_psd_percent,
+            )
+        if self.mode == "ray_tracing":
+            raise NotImplementedError(
+                "Ray-tracing mode requires a validated AIDA electron-density "
+                "profile converter and is not implemented in this dashboard."
+            )
+        raise ValueError(f"Unsupported HF propagation engine mode: {self.mode}")
 
 
 def latest_muf_grid(data: pd.DataFrame) -> pd.DataFrame:
@@ -176,6 +214,25 @@ def build_hf_engineering_case(
     route_samples: int = 33,
     assumed_psd_percent: float = 30.0,
 ) -> HfEngineeringCase:
+    """Build HF communication impact metrics with the default engine."""
+    return HFPropagationEngine(mode="muf_threshold").analyse(
+        data,
+        frequency_mhz=frequency_mhz,
+        transmitter=transmitter,
+        target=target,
+        route_samples=route_samples,
+        assumed_psd_percent=assumed_psd_percent,
+    )
+
+
+def _build_muf_threshold_engineering_case(
+    data: pd.DataFrame,
+    frequency_mhz: float = 10.0,
+    transmitter: dict | None = None,
+    target: dict | None = None,
+    route_samples: int = 33,
+    assumed_psd_percent: float = 30.0,
+) -> HfEngineeringCase:
     """Build regional and route-level HF communication impact metrics."""
     frequency = max(float(frequency_mhz), 0.1)
     transmitter = transmitter or DEFAULT_UK_TRANSMITTER
@@ -230,16 +287,31 @@ def build_frequency_sweep(
             "relative_regional_reduction_pct": summary["relative_regional_reduction_pct"],
             "quiet_route_availability_pct": summary["quiet_route_available_pct"],
             "storm_route_availability_pct": summary["storm_route_available_pct"],
+            "route_degraded_pct": summary["degraded_route_pct"],
+            "route_unavailable_pct": summary["storm_route_unavailable_pct"],
             "route_classification": summary["route_status"],
+            "decision_support": summary["route_recommendation"],
         })
     sweep = pd.DataFrame(rows)
     if sweep.empty:
         return sweep
-    best_index = sweep["storm_route_availability_pct"].astype(float).idxmax()
+    ranking = sweep.sort_values(
+        by=[
+            "storm_route_availability_pct",
+            "regional_coverage_loss_pct_points",
+            "frequency_mhz",
+        ],
+        ascending=[False, True, True],
+    )
+    best_index = ranking.index[0]
     sweep["highest_storm_route_availability_in_research_case"] = False
     sweep.loc[best_index, "highest_storm_route_availability_in_research_case"] = True
+    sweep["model_recommended_for_storm_case"] = False
+    sweep.loc[best_index, "model_recommended_for_storm_case"] = True
     sweep["label"] = ""
-    sweep.loc[best_index, "label"] = "Highest storm route availability in this research comparison"
+    sweep.loc[best_index, "label"] = (
+        "Model-preferred storm frequency in this MUF-threshold research case"
+    )
     return sweep
 
 
@@ -606,8 +678,19 @@ def _engineering_summary(
     quiet_route_pct = quiet_route_count / total_route * 100.0 if total_route else 0.0
     storm_route_pct = storm_route_count / total_route * 100.0 if total_route else 0.0
     degraded_points = int((route.get("coverage_change", pd.Series(dtype=str)) == "Degraded during storm").sum())
+    storm_unavailable_points = (
+        int((~route["storm_available"].astype(bool)).sum())
+        if total_route and "storm_available" in route
+        else 0
+    )
+    degraded_route_pct = degraded_points / total_route * 100.0 if total_route else 0.0
+    storm_unavailable_pct = storm_unavailable_points / total_route * 100.0 if total_route else 0.0
     longest_segment, first_coord, last_coord = _longest_degraded_segment(route)
+    route_status = _route_status(storm_route_pct)
+    route_recommendation = _route_recommendation(storm_route_pct, degraded_route_pct)
     return {
+        "propagation_model": "MUF-threshold engineering approximation",
+        "backend_mode": "Mode A",
         "frequency_mhz": float(frequency),
         "comparison_mode": comparison_mode,
         "total_grid_cells": total_grid,
@@ -623,23 +706,31 @@ def _engineering_summary(
             if quiet_route_pct else 0.0
         ),
         "degraded_route_points": degraded_points,
+        "degraded_route_pct": degraded_route_pct,
+        "storm_route_unavailable_pct": storm_unavailable_pct,
         "longest_degraded_segment_km": longest_segment,
         "first_degraded_coordinate": first_coord,
         "last_degraded_coordinate": last_coord,
-        "route_status": _route_status(storm_route_pct),
+        "route_status": route_status,
+        "route_recommendation": route_recommendation,
         "interpretation": _engineering_interpretation(
             frequency,
             quiet_grid_pct,
             storm_grid_pct,
             quiet_route_pct,
             storm_route_pct,
+            degraded_route_pct,
+            storm_unavailable_pct,
             longest_segment,
+            route_recommendation,
         ),
     }
 
 
 def _empty_engineering_summary(frequency: float, comparison_mode: str) -> dict:
     return {
+        "propagation_model": "MUF-threshold engineering approximation",
+        "backend_mode": "Mode A",
         "frequency_mhz": float(frequency),
         "comparison_mode": comparison_mode,
         "total_grid_cells": 0,
@@ -652,10 +743,13 @@ def _empty_engineering_summary(frequency: float, comparison_mode: str) -> dict:
         "route_coverage_loss_pct_points": 0.0,
         "relative_route_reduction_pct": 0.0,
         "degraded_route_points": 0,
+        "degraded_route_pct": 0.0,
+        "storm_route_unavailable_pct": 0.0,
         "longest_degraded_segment_km": 0.0,
         "first_degraded_coordinate": None,
         "last_degraded_coordinate": None,
         "route_status": "unavailable",
+        "route_recommendation": "HF communication unavailable in this approximation; use backup communication paths.",
         "interpretation": "No spatial MUF3000F2 grid is available. Research prototype only. Not suitable for operational aviation decision-making.",
     }
 
@@ -707,22 +801,39 @@ def _route_status(storm_route_pct: float) -> str:
     return "mostly unavailable"
 
 
+def _route_recommendation(storm_route_pct: float, degraded_route_pct: float) -> str:
+    if storm_route_pct >= 95.0 and degraded_route_pct < 5.0:
+        return "Communication acceptable in this approximation."
+    if storm_route_pct >= 50.0:
+        return "Coverage reduced; monitor route impact and consider lower HF frequencies."
+    if storm_route_pct > 0.0:
+        return "Lower operating frequency recommended within this MUF-threshold research case."
+    return "HF communication unavailable in this approximation; use backup communication paths."
+
+
 def _engineering_interpretation(
     frequency: float,
     quiet_grid_pct: float,
     storm_grid_pct: float,
     quiet_route_pct: float,
     storm_route_pct: float,
+    degraded_route_pct: float,
+    storm_unavailable_pct: float,
     longest_segment_km: float,
+    route_recommendation: str,
 ) -> str:
     return (
         f"At {frequency:.1f} MHz, modelled usable regional coverage decreases "
         f"from {quiet_grid_pct:.0f}% under quiet/background conditions to "
         f"{storm_grid_pct:.0f}% during the selected storm case. Route availability "
-        f"decreases from {quiet_route_pct:.0f}% to {storm_route_pct:.0f}%, with "
-        f"the longest degraded segment extending approximately {longest_segment_km:.0f} km. "
-        "This supports engineering decision support by translating risk categories "
-        "into possible HF communication coverage loss and route-level impact. "
+        f"decreases from {quiet_route_pct:.0f}% to {storm_route_pct:.0f}%; "
+        f"{degraded_route_pct:.0f}% of route samples degrade and "
+        f"{storm_unavailable_pct:.0f}% are unavailable during the storm case. "
+        f"The longest degraded segment extends approximately {longest_segment_km:.0f} km. "
+        "Engineering chain: PSD reduces the quiet-background MUF, the selected "
+        "HF frequency is then above the storm-time MUF in more cells, and those "
+        "cells are treated as degraded or unavailable for this approximation. "
+        f"Decision support: {route_recommendation} "
         "Research prototype only. Not suitable for operational aviation decision-making."
     )
 

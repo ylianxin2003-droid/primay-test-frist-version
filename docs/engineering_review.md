@@ -38,7 +38,7 @@ Core code modules:
 | `streamlit_cloud_github/app.py` | Streamlit application shell and page orchestration. |
 | `streamlit_cloud_github/data_loader.py` | Live SERENE API loading, cached trial loading, forecast handling, and AIDA baseline comparison. |
 | `streamlit_cloud_github/icao_risk.py` | GNSS, HF COM, and overall prototype risk category logic. |
-| `streamlit_cloud_github/hf_coverage.py` | HF MUF-threshold coverage proxy, route metrics, and frequency comparison. |
+| `streamlit_cloud_github/hf_coverage.py` | `HFPropagationEngine`, HF MUF-threshold coverage proxy, route metrics, and frequency comparison. |
 | `streamlit_cloud_github/hf_coverage_ui.py` | Streamlit UI for the HF engineering case study. |
 | `streamlit_cloud_github/validation_ui.py` | Validation checklist, assumptions, and limitations UI. |
 | `streamlit_cloud_github/icao_message.py` | TEST research message generation. |
@@ -118,10 +118,12 @@ code execution.
 - PSD sensitivity: the manual PSD slider is used only as a labelled fallback
   when the baseline comparison is unavailable.
 - Frequency sensitivity: 5, 7.5, 10, 12.5, 15, 17.5 and 20 MHz are compared as
-  research cases.
+  research cases, and the model-preferred storm frequency is labelled as
+  research decision support rather than operational advice.
 - Route assessment verification: route availability, degraded route percentage,
-  degraded route points, and longest degraded route segment are reported for
-  the UK to North Atlantic to New York case.
+  unavailable route percentage, degraded route points, longest degraded route
+  segment, and route recommendation are reported for the UK to North Atlantic
+  to New York case.
 - Regression tests cover AIDA loading, cache behaviour, risk classification,
   forecast source labelling, maps, messages, trial cache handling, and HF
   coverage metrics.
@@ -179,5 +181,7 @@ Recommended next work:
 > and then adds an HF communication case study. For HF communication, I keep the
 > current method honest: it is a MUF-threshold coverage proxy, not ray tracing.
 > It shows quiet versus storm coverage, route degradation from the UK across the
-> North Atlantic to New York, and frequency sensitivity as research comparison
-> only. The next step is validation, not adding unsupported products.
+> North Atlantic to New York, and frequency sensitivity as research comparison.
+> The frequency recommendation is only a model-based decision-support output,
+> not operational advice. The next step is validation, not adding unsupported
+> products.
