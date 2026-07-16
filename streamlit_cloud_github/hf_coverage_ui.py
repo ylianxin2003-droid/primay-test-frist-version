@@ -49,6 +49,12 @@ def render_hf_propagation_case_study(df: pd.DataFrame) -> None:
             "AIDA quiet vs storm comparison is used when `reference_value` exists; "
             "otherwise the manual PSD slider is used as fallback."
         )
+    st.info(
+        "Engineering workflow: Input = transmitter, target route and frequency; "
+        "Processing = quiet/background MUF compared with storm MUF; "
+        "Engineering meaning = PSD lowers MUF and reduces usable HF coverage; "
+        "Decision support = route status and model-based frequency comparison."
+    )
 
     control_col, psd_col, tx_col, target_col = st.columns(4)
     with control_col:
