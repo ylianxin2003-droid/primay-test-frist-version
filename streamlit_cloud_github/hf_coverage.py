@@ -607,6 +607,108 @@ def create_hf_coverage_map(
     return fig
 
 
+def create_hf_route_profile_plot(route: pd.DataFrame, frequency_mhz: float) -> object:
+    """Create a route profile figure showing quiet/storm MUF against frequency."""
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+    if route is None or route.empty:
+        fig.add_annotation(
+            text="No route samples are available for the HF route profile.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
+        fig.update_layout(template="plotly_white", height=420)
+        return fig
+
+    required = {"distance_km", "quiet_muf_mhz", "storm_muf_mhz"}
+    if not required.issubset(route.columns):
+        fig.add_annotation(
+            text="Route samples do not contain quiet and storm MUF values.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
+        fig.update_layout(template="plotly_white", height=420)
+        return fig
+
+    work = route.copy()
+    work["distance_km"] = pd.to_numeric(work["distance_km"], errors="coerce")
+    work["quiet_muf_mhz"] = pd.to_numeric(work["quiet_muf_mhz"], errors="coerce")
+    work["storm_muf_mhz"] = pd.to_numeric(work["storm_muf_mhz"], errors="coerce")
+    work = work.dropna(subset=["distance_km", "quiet_muf_mhz", "storm_muf_mhz"])
+    if work.empty:
+        fig.add_annotation(
+            text="No numeric route MUF samples are available.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
+        fig.update_layout(template="plotly_white", height=420)
+        return fig
+
+    fig.add_trace(
+        go.Scatter(
+            x=work["distance_km"],
+            y=work["quiet_muf_mhz"],
+            mode="lines+markers",
+            name="Quiet/background MUF",
+            line={"color": "#2E7D32", "width": 3},
+            hovertemplate="distance=%{x:.0f} km<br>quiet MUF=%{y:.1f} MHz<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=work["distance_km"],
+            y=work["storm_muf_mhz"],
+            mode="lines+markers",
+            name="Storm MUF",
+            line={"color": "#D84315", "width": 3},
+            hovertemplate="distance=%{x:.0f} km<br>storm MUF=%{y:.1f} MHz<extra></extra>",
+        )
+    )
+    fig.add_hline(
+        y=float(frequency_mhz),
+        line_dash="dash",
+        line_color="#0D47A1",
+        annotation_text=f"Selected HF frequency: {float(frequency_mhz):.1f} MHz",
+        annotation_position="top left",
+    )
+    if "coverage_change" in work.columns:
+        degraded = work[work["coverage_change"] == "Degraded during storm"]
+        if not degraded.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=degraded["distance_km"],
+                    y=degraded["storm_muf_mhz"],
+                    mode="markers",
+                    name="Degraded route samples",
+                    marker={"color": "#B71C1C", "size": 11, "symbol": "x"},
+                    hovertemplate=(
+                        "degraded sample<br>distance=%{x:.0f} km<br>"
+                        "storm MUF=%{y:.1f} MHz<extra></extra>"
+                    ),
+                )
+            )
+    fig.update_layout(
+        title="Route MUF profile: quiet background vs storm case",
+        template="plotly_white",
+        height=430,
+        xaxis_title="Distance along route (km)",
+        yaxis_title="MUF3000F2 (MHz)",
+        legend_title_text="Route profile",
+        margin={"l": 10, "r": 10, "t": 60, "b": 10},
+    )
+    return fig
+
+
 def _coverage_label(row: pd.Series) -> str:
     if bool(row["quiet_available"]) and bool(row["storm_available"]):
         return "Usable in both"

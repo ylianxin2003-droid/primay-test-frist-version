@@ -13,6 +13,7 @@ from hf_coverage import (
     build_frequency_sweep,
     build_hf_engineering_case,
     create_hf_coverage_map,
+    create_hf_route_profile_plot,
 )
 
 
@@ -184,10 +185,11 @@ def render_hf_propagation_case_study(df: pd.DataFrame) -> None:
     st.markdown("**Route decision support**")
     st.warning(summary["route_recommendation"])
 
-    quiet_tab, storm_tab, change_tab, route_tab, sweep_tab = st.tabs([
+    quiet_tab, storm_tab, change_tab, profile_tab, route_tab, sweep_tab = st.tabs([
         "Quiet map",
         "Storm map",
         "Coverage change",
+        "Route profile",
         "Route samples",
         "Frequency sweep",
     ])
@@ -224,6 +226,20 @@ def render_hf_propagation_case_study(df: pd.DataFrame) -> None:
                 route=engineering_case.route.to_dict("records"),
                 title=f"Coverage change at {summary['frequency_mhz']:.1f} MHz",
                 map_mode="change",
+            ),
+            width="stretch",
+        )
+    with profile_tab:
+        st.caption(
+            "Validation figure for dissertation use: this profile shows how "
+            "quiet/background MUF compares with storm MUF along the same route. "
+            "Where the storm MUF falls below the selected frequency, the route "
+            "sample is treated as degraded in the MUF-threshold approximation."
+        )
+        st.plotly_chart(
+            create_hf_route_profile_plot(
+                engineering_case.route,
+                summary["frequency_mhz"],
             ),
             width="stretch",
         )

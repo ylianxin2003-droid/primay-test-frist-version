@@ -60,9 +60,11 @@ presentation screenshots:
 5. Raw MUF3000F2 or TEC value map.
 6. HF Communication Coverage section showing UK to North Atlantic to New York
    route and coverage loss.
-7. Frequency sweep table labelled as research comparison only.
-8. TEST research message showing non-operational wording.
-9. Validation and engineering assumptions expander.
+7. Route profile figure showing quiet/background MUF, storm MUF, selected
+   frequency, and degraded route samples.
+8. Frequency sweep table labelled as research comparison only.
+9. TEST research message showing non-operational wording.
+10. Validation and engineering assumptions expander.
 
 ## 4. Architecture Diagram
 
@@ -124,6 +126,9 @@ code execution.
   unavailable route percentage, degraded route points, longest degraded route
   segment, and route recommendation are reported for the UK to North Atlantic
   to New York case.
+- Dissertation figure support: the route profile plot shows quiet/background
+  MUF, storm MUF, selected operating frequency, and degraded samples along the
+  same route.
 - Regression tests cover AIDA loading, cache behaviour, risk classification,
   forecast source labelling, maps, messages, trial cache handling, and HF
   coverage metrics.

@@ -261,6 +261,38 @@ class HfCoverageTest(unittest.TestCase):
         self.assertGreaterEqual(len(fig.data), 2)
         self.assertEqual(len(fig.layout.annotations), 0)
 
+    def test_route_profile_plot_shows_quiet_storm_frequency_and_degraded_samples(self):
+        try:
+            import plotly  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("plotly is not installed in this local test interpreter")
+
+        from hf_coverage import create_hf_route_profile_plot
+
+        route = pd.DataFrame([
+            {
+                "distance_km": 0.0,
+                "quiet_muf_mhz": 15.0,
+                "storm_muf_mhz": 14.0,
+                "coverage_change": "Usable in both",
+            },
+            {
+                "distance_km": 500.0,
+                "quiet_muf_mhz": 15.0,
+                "storm_muf_mhz": 8.0,
+                "coverage_change": "Degraded during storm",
+            },
+        ])
+
+        fig = create_hf_route_profile_plot(route, frequency_mhz=10.0)
+        trace_names = {trace.name for trace in fig.data}
+
+        self.assertIn("Quiet/background MUF", trace_names)
+        self.assertIn("Storm MUF", trace_names)
+        self.assertIn("Degraded route samples", trace_names)
+        self.assertEqual(len(fig.layout.shapes), 1)
+        self.assertIn("Selected HF frequency", fig.layout.annotations[0].text)
+
 
 if __name__ == "__main__":
     unittest.main()
