@@ -236,10 +236,10 @@ def build_frequency_sweep(
     if sweep.empty:
         return sweep
     best_index = sweep["storm_route_availability_pct"].astype(float).idxmax()
-    sweep["potentially_more_robust_frequency"] = False
-    sweep.loc[best_index, "potentially_more_robust_frequency"] = True
+    sweep["highest_storm_route_availability_in_research_case"] = False
+    sweep.loc[best_index, "highest_storm_route_availability_in_research_case"] = True
     sweep["label"] = ""
-    sweep.loc[best_index, "label"] = "Potentially more robust frequency in this research case"
+    sweep.loc[best_index, "label"] = "Highest storm route availability in this research comparison"
     return sweep
 
 
@@ -275,6 +275,12 @@ def great_circle_route(
             "lon": ((math.degrees(lon) + 540.0) % 360.0) - 180.0,
         })
     route = pd.DataFrame(points)
+    route["route_waypoint"] = ""
+    if len(route) >= 3:
+        mid_index = int(round((len(route) - 1) / 2))
+        route.loc[0, "route_waypoint"] = str(transmitter.get("name", "Transmitter"))
+        route.loc[mid_index, "route_waypoint"] = "North Atlantic corridor"
+        route.loc[len(route) - 1, "route_waypoint"] = str(target.get("name", "Target"))
     distances = [0.0]
     for index in range(1, len(route)):
         previous = route.iloc[index - 1]
@@ -446,6 +452,10 @@ def create_hf_coverage_map(
         )
 
     route_line_mode = "lines+markers"
+    if "route_waypoint" in route_frame.columns:
+        waypoint_text = route_frame["route_waypoint"].fillna("")
+    else:
+        waypoint_text = route_frame.get("name", route_frame.get("route_index", ""))
     if {"storm_available", "quiet_available"}.issubset(route_frame.columns):
         route_frame = route_frame.copy()
         route_frame["route_degraded"] = (
@@ -461,10 +471,10 @@ def create_hf_coverage_map(
             lat=route_frame["lat"],
             lon=route_frame["lon"],
             mode=route_line_mode,
-            name="Illustrative UK-North Atlantic route",
+            name="Illustrative UK-North Atlantic-New York route",
             line={"color": "#0D47A1", "width": 2, "dash": "dash"},
             marker={"size": 7, "color": "#0D47A1"},
-            text=route_frame.get("name", route_frame.get("route_index", "")),
+            text=waypoint_text,
             hovertemplate="route point<br>lat=%{lat:.1f}, lon=%{lon:.1f}<extra></extra>",
         )
     )
@@ -711,6 +721,8 @@ def _engineering_interpretation(
         f"{storm_grid_pct:.0f}% during the selected storm case. Route availability "
         f"decreases from {quiet_route_pct:.0f}% to {storm_route_pct:.0f}%, with "
         f"the longest degraded segment extending approximately {longest_segment_km:.0f} km. "
+        "This supports engineering decision support by translating risk categories "
+        "into possible HF communication coverage loss and route-level impact. "
         "Research prototype only. Not suitable for operational aviation decision-making."
     )
 

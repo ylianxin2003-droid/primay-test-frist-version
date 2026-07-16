@@ -117,9 +117,22 @@ class HfCoverageTest(unittest.TestCase):
 
         sweep = build_frequency_sweep(case, frequencies=[5.0, 10.0, 15.0])
 
-        best = sweep[sweep["potentially_more_robust_frequency"]].iloc[0]
+        best = sweep[sweep["highest_storm_route_availability_in_research_case"]].iloc[0]
         self.assertEqual(float(best["frequency_mhz"]), 5.0)
-        self.assertEqual(best["label"], "Potentially more robust frequency in this research case")
+        self.assertEqual(best["label"], "Highest storm route availability in this research comparison")
+
+    def test_default_route_labels_north_atlantic_waypoint(self):
+        from hf_coverage import TARGET_PRESETS, TRANSMITTER_PRESETS, great_circle_route
+
+        route = great_circle_route(
+            TRANSMITTER_PRESETS["UK transmitter"],
+            TARGET_PRESETS["New York JFK"],
+            samples=5,
+        )
+
+        self.assertEqual(route["route_waypoint"].iloc[0], "UK transmitter demo")
+        self.assertIn("North Atlantic corridor", set(route["route_waypoint"]))
+        self.assertEqual(route["route_waypoint"].iloc[-1], "New York JFK")
 
     def test_psd_degrades_cells_that_were_usable_in_quiet_state(self):
         from hf_coverage import build_hf_coverage_case

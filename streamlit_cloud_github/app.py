@@ -684,7 +684,8 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
     st.caption(
         "Phase 1 uses a simplified MUF-based coverage proxy to connect PSD/MUF "
         "changes to possible HF communication impact. Phase 2 is an experimental "
-        "Trace HF ray-tracing integration path; no ray paths are fabricated here."
+        "Trace HF ray-tracing integration path; no ray paths are fabricated here. "
+        "This is not an operational HF communication coverage product."
     )
 
     mode_col, source_col = st.columns([1.3, 1])
@@ -734,6 +735,7 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
         target_preset = st.selectbox(
             "Target preset",
             ["North Atlantic corridor", "New York JFK", "Custom target"],
+            index=1,
             key="hf_target_preset",
         )
 
@@ -808,15 +810,18 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
     summary = engineering_case.summary
     metric_cols = st.columns(4)
     metric_cols[0].metric("Selected frequency", f"{summary['frequency_mhz']:.1f} MHz")
-    metric_cols[1].metric("Quiet usable grid", f"{summary['quiet_usable_grid_pct']:.0f}%")
-    metric_cols[2].metric("Storm usable grid", f"{summary['storm_usable_grid_pct']:.0f}%")
-    metric_cols[3].metric("Regional coverage loss", f"{summary['regional_coverage_loss_pct_points']:.0f} pp")
-    route_cols = st.columns(4)
+    metric_cols[1].metric("Quiet coverage", f"{summary['quiet_usable_grid_pct']:.0f}%")
+    metric_cols[2].metric("Storm coverage", f"{summary['storm_usable_grid_pct']:.0f}%")
+    metric_cols[3].metric("Coverage loss", f"{summary['regional_coverage_loss_pct_points']:.0f} pp")
+    route_cols = st.columns(5)
     route_cols[0].metric("Quiet route availability", f"{summary['quiet_route_available_pct']:.0f}%")
     route_cols[1].metric("Storm route availability", f"{summary['storm_route_available_pct']:.0f}%")
-    route_cols[2].metric("Longest degraded segment", f"{summary['longest_degraded_segment_km']:.0f} km")
-    route_cols[3].metric("Comparison mode", summary["comparison_mode"])
+    route_cols[2].metric("Route coverage reduction", f"{summary['route_coverage_loss_pct_points']:.0f} pp")
+    route_cols[3].metric("Degraded route points", int(summary["degraded_route_points"]))
+    route_cols[4].metric("Longest degraded segment", f"{summary['longest_degraded_segment_km']:.0f} km")
+    st.caption(f"Comparison mode: {summary['comparison_mode']}")
 
+    st.markdown("**Engineering interpretation**")
     st.info(summary["interpretation"])
 
     quiet_tab, storm_tab, change_tab, route_tab, sweep_tab = st.tabs([
@@ -866,13 +871,15 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
         st.dataframe(engineering_case.route, width="stretch", hide_index=True)
     with sweep_tab:
         sweep = build_frequency_sweep(engineering_case, DEFAULT_SWEEP_FREQUENCIES)
+        st.caption("Research comparison only. This table does not recommend operational frequencies.")
         st.dataframe(sweep, width="stretch", hide_index=True)
-        best = sweep[sweep["potentially_more_robust_frequency"]]
+        best = sweep[sweep["highest_storm_route_availability_in_research_case"]]
         if not best.empty:
             row = best.iloc[0]
-            st.success(
-                f"{row['frequency_mhz']:.1f} MHz: Potentially more robust frequency "
-                "in this research case. This is not an operational recommendation."
+            st.info(
+                f"{row['frequency_mhz']:.1f} MHz has the highest storm route "
+                "availability in this research comparison. This is not an "
+                "operational frequency recommendation."
             )
 
     with st.expander("How to interpret this HF case study"):
@@ -909,6 +916,40 @@ def _render_hf_propagation_case_study(df: pd.DataFrame) -> None:
             AIDA mapping, and remaining blockers. The optional
             `trace_poc_probe.py` script only checks local Trace readiness; it is
             not a propagation result.
+            """
+        )
+
+
+def _render_validation_section() -> None:
+    st.subheader("Validation and engineering assumptions")
+    with st.expander("Validation checklist for the engineering decision-support prototype", expanded=False):
+        st.markdown(
+            """
+            The validation work is organised around the project risks that matter
+            for a decision-support prototype:
+
+            - Historical event replay: use cached trial outputs or Live SERENE API
+              mode to replay selected storm-like analysis windows.
+            - Quiet vs storm comparison: prefer AIDA `reference_value` from the
+              30-day same-UTC MUF3000F2 baseline when it is available.
+            - PSD sensitivity: use the fallback PSD slider only when a historical
+              comparison is unavailable, and label the result as an assumption.
+            - Frequency sensitivity: compare 5, 7.5, 10, 12.5, 15, 17.5 and
+              20 MHz as research cases, not operational frequency advice.
+            - Route assessment verification: check quiet route availability,
+              storm route availability, route coverage reduction, degraded route
+              points and longest degraded route segment for the UK to North
+              Atlantic to New York JFK case study.
+
+            Main assumptions and limitations:
+
+            - HF Communication Coverage is a MUF-threshold engineering proxy, not
+              Trace ray tracing.
+            - The dashboard depends on SERENE/AIDA inputs and available archive
+              states.
+            - Kp/ap are global context only and are not regional map cells.
+            - This is a research prototype only, not operational aviation
+              guidance.
             """
         )
 
@@ -1311,6 +1352,8 @@ def _render_main(params: dict) -> None:
         _render_hf_propagation_case_study(df)
         st.markdown("---")
     _render_global_indices(df)
+    st.markdown("---")
+    _render_validation_section()
     st.markdown("---")
     _render_explanation_panels()
     st.markdown("---")

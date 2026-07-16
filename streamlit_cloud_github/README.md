@@ -17,7 +17,35 @@ Streamlit Secrets
   -> official AIDAState.readFile() and AIDAState.calc()
   -> exact local bounding-box/grid calculation
   -> time, lat, lon, variable, value, model DataFrame
-  -> ICAO-style category maps, summary table and research text messages
+   -> ICAO-style category maps, summary table and research text messages
+```
+
+## Engineering decision-support workflow
+
+The final project workflow is:
+
+```mermaid
+flowchart LR
+    A["SERENE/AIDA"] --> B["Data loading"]
+    B --> C["Indicator processing"]
+    C --> D["Risk engine"]
+    D --> E["Visualisation"]
+    E --> F["Engineering outputs"]
+
+    C --> C1["TEC, MUF3000F2, Kp/ap"]
+    D --> D1["GNSS and HF COM risk"]
+    F --> F1["HF Communication Coverage"]
+    F --> F2["UK to North Atlantic to New York JFK route assessment"]
+    F --> F3["Frequency sensitivity and engineering interpretation"]
+```
+
+The dashboard does not stop at risk categories. The intended chain is:
+
+```text
+Risk Assessment
+  -> Communication Impact
+  -> Engineering Interpretation
+  -> Decision Support
 ```
 
 Changing the map extent or spacing changes only local calculation and plotting.

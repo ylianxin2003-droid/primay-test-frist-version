@@ -178,12 +178,32 @@ class DashboardSettingsTest(unittest.TestCase):
         self.assertIn("Phase 2: experimental Trace", app_source)
         self.assertIn("Trace HF ray-tracing", app_source)
         self.assertIn("MUF-threshold demonstration", app_source)
+        self.assertIn("Quiet coverage", app_source)
+        self.assertIn("Storm coverage", app_source)
+        self.assertIn("Coverage loss", app_source)
         self.assertIn("Quiet route availability", app_source)
+        self.assertIn("Route coverage reduction", app_source)
+        self.assertIn("Degraded route points", app_source)
         self.assertIn("Frequency sweep", app_source)
+        self.assertIn("Research comparison only", app_source)
+        self.assertIn("not recommend operational frequencies", app_source)
         self.assertIn("not an operational", app_one_line)
         self.assertIn("not a full propagation solver", app_one_line)
         self.assertIn("HF propagation case study", readme)
         self.assertIn("not run full Trace ray tracing", readme)
+        self.assertIn("Engineering decision-support workflow", readme)
+        self.assertIn("Communication Impact", readme)
+
+    def test_app_exposes_validation_section_for_decision_support(self):
+        app_source = APP_PATH.read_text()
+
+        self.assertIn("Validation and engineering assumptions", app_source)
+        self.assertIn("Historical event replay", app_source)
+        self.assertIn("Quiet vs storm comparison", app_source)
+        self.assertIn("PSD sensitivity", app_source)
+        self.assertIn("Frequency sensitivity", app_source)
+        self.assertIn("Route assessment verification", app_source)
+        self.assertIn("MUF-threshold engineering proxy", app_source)
 
     def test_readme_explains_prediction_fallback_sources(self):
         readme = README_PATH.read_text()
